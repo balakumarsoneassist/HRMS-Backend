@@ -1,0 +1,5 @@
+
+function handleError(error, res) {
+    return res.json({ success: false, message: error.message });
+}
+module.exports = handleError;

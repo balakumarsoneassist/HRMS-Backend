@@ -1,0 +1,8 @@
+{
+  "name" : "store",
+  "script" : "src/app.js",
+  "cwd" : "/root/store/",
+  "watch" : true,
+  "ignore_watch" : ["public"]
+}
+

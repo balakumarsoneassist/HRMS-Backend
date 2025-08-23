@@ -1,0 +1,43 @@
+[
+  {
+    "roleId": "6884cc051725e1465c06c2af",
+    "role": "Super Admin",
+    "main": [
+      { "menuName": "Dashboard", "children": [{ "submenuName": "Dashboard" }] },
+      { "menuName": "Access", "children": [{ "submenuName": "Access" }, { "submenuName": "Access Define" }] },
+      { "menuName": "User Management", "children": [{ "submenuName": "Add User" }, { "submenuName": "View Users" }] },
+      { "menuName": "Reports", "children": [{ "submenuName": "Daily Report" }, { "submenuName": "Monthly Report" }] },
+      {
+        "menuName": "Employee's Approval",
+        "children": [
+          { "submenuName": "Employee Leave Approval" },
+          { "submenuName": "Employee Petrol Approval" }
+        ]
+      },
+      {
+        "menuName": "Holiday Planning",
+        "children": [
+          { "submenuName": "Holiday Planning" }
+        ]
+      }
+    ]
+  },
+  {
+    "roleId": "6884cc051725e1465c06c2b0",
+    "role": "Admin",
+    "main": [
+      { "menuName": "Dashboard", "children": [{ "submenuName": "Dashboard" }] },
+      { "menuName": "User Management", "children": [{ "submenuName": "Add User" }, { "submenuName": "View Users" }] },
+      { "menuName": "Reports", "children": [{ "submenuName": "Daily Report" }, { "submenuName": "Monthly Report" }] },
+      {
+        "menuName": "Employee's Approval",
+        "children": [
+          { "submenuName": "Employee Leave Approval" },
+          { "submenuName": "Employee Petrol Approval" }
+        ]
+      },
+      { "menuName": "Attendance", "children": [{ "submenuName": "Leave Request" }, { "submenuName": "Attendance" }] },
+      { "menuName": "Reimbursment", "children": [] }
+    ]
+  }
+]
