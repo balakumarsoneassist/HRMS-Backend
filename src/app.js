@@ -1,47 +1,63 @@
 const express = require("express");
 const routes = require("./routes");
 const dotenv = require("dotenv");
-const path = require("path");
-require("./corn/attendance.cron"); // Add this after mongoose connection
-require("./corn/autoMarkAbsent.cron");
-
-dotenv.config();
-const app = express();
 const cors = require("cors");
+const mongoose = require("mongoose");
 const UserService = require("./services/user-service");
 
-const mongoose = require("mongoose");
+dotenv.config();
 
-const DB_URI = "mongodb://127.0.0.1:27017/hrms";
+const DB_URI = process.env.MONGO_URI || "mongodb+srv://HRMS:dbHRMS02@cluster0.b3zzpjd.mongodb.net/hrmsdb?retryWrites=true&w=majority&appName=Cluster0";
 
-mongoose.connect(DB_URI, {
-  serverSelectionTimeoutMS: 30000, // 30 seconds
-  socketTimeoutMS: 45000, // 45 seconds
+// Connect to MongoDB Atlas
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  tls: true,
+  serverSelectionTimeoutMS: 30000,
+  socketTimeoutMS: 45000,
 });
 
+
 mongoose.connection.on("connected", () => {
-  console.log("Mongoose connected to DB");
+  console.log("✅ Mongoose connected to DB");
+
+  // Load cron jobs only after DB connection
+  require("./corn/attendance.cron");
+  require("./corn/autoMarkAbsent.cron");
+
+  // Start server only after DB is ready
+  startServer();
 });
 
 mongoose.connection.on("error", (err) => {
-  console.error("Mongoose connection error:", err);
+  console.error("❌ Mongoose connection error:", err);
 });
 
 mongoose.connection.on("disconnected", () => {
-  console.log("Mongoose disconnected");
+  console.log("⚠️ Mongoose disconnected");
 });
 
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// -------------------
+// Start Express Server
+// -------------------
+function startServer() {
+  const app = express();
 
-let userService = new UserService();
-userService.init();
+  app.use(cors());
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
+  // Init services AFTER DB connection
+  let userService = new UserService();
+  userService.init();
 
-app.use(routes);
+  app.use(routes);
 
-app.get("/", (req, res, next) => {
-  res.send("Test app");
-});
-app.listen(8080, () => console.log("Server running on port:8080"));
+  app.get("/", (req, res) => {
+    res.send("Test app");
+  });
+
+  const PORT = process.env.PORT || 8081;
+  app.listen(PORT, () => console.log(`🚀 Server running on port: ${PORT}`));
+}
