@@ -9,6 +9,7 @@ const leave_policy_controller = require("../controllers/leave-policy-controller"
 const standardMenu_controller = require("../controllers/standardMenu-controller");
 const LeavetypeController = require("../controllers/leaveType-controller");
 const HolidaysController = require('../controllers/holidays-controller');
+const UserAttendanceReportController = require("../controllers/user-attendance-report-controller");
 
 const masterRouter = express.Router();
 masterRouter
@@ -19,5 +20,7 @@ masterRouter
 .use("/leave-policies",leave_policy_controller )
 .use("/leave-type",LeavetypeController)
 .use("/standardmenu",standardMenu_controller )
+.use("/userattendancereport",UserAttendanceReportController )
+
 .use('/holidays', HolidaysController);
 module.exports = masterRouter;

@@ -1,14 +1,13 @@
 const express = require("express");
 const atd_service = require("../services/attendance-service");
 const user_service = require("../services/user-service");
-const { getVisibleUserIdsFor } = require("../services/visibility.service"); // 👈 add this helper
+const { getVisibleUserIdsFor } = require("../services/visibility.service");
 const routesUtil = require("../utils/routes");
-const holiday_service = require("../services/holiday-service"); // 👈 add
+const holiday_service = require("../services/holiday-service");
 
 const AttendanceController = express.Router();
 let routes = new routesUtil(atd_service);
 
-/** Small helper: require auth once per route */
 async function requireAuth(req, res) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -18,7 +17,7 @@ async function requireAuth(req, res) {
   const token = authHeader.split(" ")[1];
   const userservice = new user_service();
   const decrypted = await userservice.checkValidUser(token);
-  return decrypted; // { id/_id, roleId, ... }
+  return decrypted;
 }
 
 AttendanceController
@@ -26,6 +25,7 @@ AttendanceController
 
   .get("/one/:id", routes.retrieve)
 
+  // ✅ LOGIN
   .post("/present/login", async (req, res) => {
     try {
       const decrypted = await requireAuth(req, res);
@@ -40,11 +40,16 @@ AttendanceController
         date: { $gte: todayStart, $lte: todayEnd },
       });
 
+      // 🔎 holiday check
+      const hsvc = new holiday_service();
+      const holidayInfo = await hsvc.isHolidayOn(new Date());
+
       if (!check) {
         const body = {
           userId: decrypted.id,
           date: new Date(),
           attendanceType: "Present",
+          isHoliday: holidayInfo.isHoliday,   // ✅ save holiday flag
           geoTaglogin: {
             login: true,
             latitude: req.body.lat,
@@ -62,6 +67,7 @@ AttendanceController
     }
   })
 
+  // ✅ LOGOUT
   .post("/present/logout", async (req, res) => {
     try {
       const decrypted = await requireAuth(req, res);
@@ -78,12 +84,18 @@ AttendanceController
       });
 
       if (check) {
+        // 🔎 holiday check
+        const hsvc = new holiday_service();
+        const holidayInfo = await hsvc.isHolidayOn(new Date());
+
         check.geoTaglogout = {
           logout: true,
           latitude: req.body.lat,
           longitude: req.body.lon,
-          date: new Date(),              // ✅ fixed (was new Date().now)
+          date: new Date(),
         };
+        check.isHoliday = holidayInfo.isHoliday;   // ✅ update holiday flag
+
         const result = await service.update(check, { _id: check._id });
         return res.json(result);
       }

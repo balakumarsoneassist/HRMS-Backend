@@ -117,6 +117,6 @@ const markAbsentAttendance = async () => {
 };
 
 // ⏰ Schedule cron job daily at 11:01 AM
-cron.schedule("1 14 * * *", markAbsentAttendance);
+cron.schedule("1 11 * * *", markAbsentAttendance);
 
 module.exports = markAbsentAttendance;
