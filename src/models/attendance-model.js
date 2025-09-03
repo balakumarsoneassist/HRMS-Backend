@@ -30,6 +30,11 @@ const attendanceSchema = new mongoose.Schema(
       default: null // null = not reviewed yet, true = approved, false = rejected
     },
 
+    isHoliday: {
+ type: Boolean,
+      default: false
+    },
+
     geoTaglogin: {
       login: { type: Boolean ,default: false },
       latitude: { type: Number,  default:0 },

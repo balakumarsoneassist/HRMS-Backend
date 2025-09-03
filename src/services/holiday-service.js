@@ -1,6 +1,7 @@
 // services/holiday-service.js
 const crud_service = require("../services/crud-service");
 const HolidayRuleModel = require("../models/holiday-rule-model");
+const moment = require("moment"); // install moment if not already
 
 class HolidayService extends crud_service {
   constructor() {
@@ -12,6 +13,106 @@ class HolidayService extends crud_service {
             };
             this.validateDelete = async (data) => {
             };
+  }
+
+  async isTodayHoliday() {
+    const today = moment();
+    const todayDate = today.format("YYYY-MM-DD");
+    const todayMonthDay = today.format("MM-DD");
+    const weekday = today.day();   // 0=Sunday ... 6=Saturday
+    const month = today.month();   // 0=Jan ... 11=Dec
+
+    // 1. Check fixed date holidays
+    const fixed = await HolidayRuleModel.findOne({
+      isEnabled: true,
+      date: todayDate,
+    });
+    if (fixed) return fixed;
+
+    // 2. Check recurrence rules
+    const rules = await HolidayRuleModel.find({ isEnabled: true, recurrence: { $ne: null } });
+
+    for (const rule of rules) {
+      const rec = rule.recurrence;
+
+      if (rec.kind === "annual-fixed" && rec.startDate) {
+        if (rec.startDate <= todayMonthDay && todayMonthDay <= rec.endDate) {
+          return rule;
+        }
+      }
+
+      if (rec.kind === "weekly" && rec.weekdays?.includes(weekday)) {
+        return rule;
+      }
+
+      if (rec.kind === "nth-weekday-monthly") {
+        if (rec.weekdays?.includes(weekday) && rec.months?.includes(month)) {
+          const nth = Math.ceil(today.date() / 7); // e.g. 2nd Monday
+          if (rec.nths?.includes(nth)) {
+            return rule;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+
+    async isHolidayOn(date) {
+    const today = moment(date);
+    const todayDate = today.format("YYYY-MM-DD");
+    const todayMonthDay = today.format("MM-DD");
+    const weekday = today.day();   // 0=Sunday
+    const month = today.month();   // 0=Jan
+
+    const holidays = [];
+
+    // 1. Direct date match
+    const fixed = await HolidayRuleModel.find({
+      isEnabled: true,
+      date: todayDate,
+    });
+    holidays.push(...fixed);
+
+    // 2. Recurrence rules
+    const recRules = await HolidayRuleModel.find({
+      isEnabled: true,
+      recurrence: { $ne: null },
+    });
+
+    for (const rule of recRules) {
+      const rec = rule.recurrence;
+
+      if (rec.kind === "annual-fixed" && rec.startDate) {
+        if (rec.startDate <= todayMonthDay && todayMonthDay <= rec.endDate) {
+          holidays.push(rule);
+        }
+      }
+
+      if (rec.kind === "weekly" && rec.weekdays?.includes(weekday)) {
+        holidays.push(rule);
+      }
+
+      if (rec.kind === "nth-weekday-monthly") {
+        if (rec.weekdays?.includes(weekday) && rec.months?.includes(month)) {
+          const nth = Math.ceil(today.date() / 7);
+          if (rec.nths?.includes(nth)) {
+            holidays.push(rule);
+          }
+        }
+      }
+    }
+
+    return {
+      isHoliday: holidays.length > 0,
+      holidays: holidays.map(h => ({
+        id: h._id,
+        name: h.name,
+        color: h.color,
+        isGovernment: h.isGovernment,
+      })),
+    };
   }
 
   async isHolidayOn(dateObj) {
