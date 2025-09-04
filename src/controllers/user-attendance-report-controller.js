@@ -110,5 +110,49 @@ UserAttendanceReportController.put("/override/present/:reportId", async (req, re
   }
 });
 
+/** ---------- MONTHLY PIVOT REPORT (PERSISTED ONLY) ---------- */
+UserAttendanceReportController.get("/pivot/month/:year/:month", async (req, res) => {
+  try {
+    const decrypted = await requireAuth(req, res);
+    if (!decrypted) return;
+
+    const { year, month } = req.params;
+
+    const result = await reportService.getPersistedMonthlyPivot(
+      year,
+      month,
+      decrypted.id
+    );
+
+    res.json({ success: true, mode: "pivot", ...result });
+  } catch (err) {
+    console.error("GET /pivot/month error", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+
+/** ---------- MONTHLY PIVOT REPORT (PERSISTED ONLY) ---------- */
+UserAttendanceReportController.get("/pivot/month/:year/:month", async (req, res) => {
+  try {
+    const decrypted = await requireAuth(req, res);
+    if (!decrypted) return;
+
+    const { year, month } = req.params;
+
+    const result = await reportService.getPersistedMonthlyPivot(
+      year,
+      month,
+      decrypted.id
+    );
+
+    res.json({ success: true, mode: "pivot", ...result });
+  } catch (err) {
+    console.error("GET /pivot/month error", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+
 
 module.exports = UserAttendanceReportController;
