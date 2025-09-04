@@ -196,6 +196,68 @@ async dayReport(date, page = 1, limit = 10, viewerId) {
       { path: "changedBy", select: "empId user_name email" }
     ]);
   }
+
+
+
+/** ------------------ MONTHLY PIVOT WITH TOTAL PRESENT/DAYS ------------------ */
+async getPersistedMonthlyPivot(year, month, viewerId) {
+  const visibleIds = await getVisibleUserIdsFor(viewerId);
+
+  const start = new Date(year, month - 1, 1, 0, 0, 0, 0);
+  const end = new Date(year, month, 0, 23, 59, 59, 999);
+
+  const filter = { date: { $gte: start, $lte: end } };
+  if (visibleIds?.length) filter.userId = { $in: visibleIds };
+
+  const tz = 'Asia/Kolkata';
+  const fmtIST = (d) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(d));
+
+  const records = await userAttendanceReportModel.find(filter)
+    .populate('userId', 'user_name')
+    .sort({ date: 1 });
+
+  // Collect all dates of the month
+  const allDatesSet = new Set();
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    allDatesSet.add(fmtIST(d));
+  }
+  for (const rec of records) {
+    allDatesSet.add(fmtIST(rec.date));
+  }
+  const dates = Array.from(allDatesSet).sort();
+
+  const pivot = {};
+  for (const rec of records) {
+    const uname = rec.userId?.user_name || 'Unknown';
+    const d = fmtIST(rec.date);
+
+    if (!pivot[uname]) {
+      pivot[uname] = { _totals: { present: 0, totalDays: dates.length } };
+      dates.forEach(dt => (pivot[uname][dt] = null));
+    }
+
+    // Attendance calculation
+    if (rec.isHoliday) {
+      pivot[uname][d] = 'holiday';
+    } else if (rec.attendanceType?.toLowerCase() === 'present') {
+      pivot[uname][d] = 'present';
+      pivot[uname]._totals.present++;
+    } else if (rec.attendanceType) {
+      pivot[uname][d] = rec.attendanceType.toLowerCase();
+    }
+  }
+
+  // Format totals as "present/totalDays"
+  for (const uname in pivot) {
+    const { present, totalDays } = pivot[uname]._totals;
+    pivot[uname]._totals = `${present}/${totalDays}`;
+  }
+
+  return { dates, users: pivot };
 }
 
+
+
+}
 module.exports = UserAttendanceReportService;
