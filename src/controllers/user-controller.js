@@ -207,28 +207,28 @@ UserController
   .delete("/:id", routes.delete)
 
 
-  .post("/change-password", async (req, res) => {
-  try {
-    const auth = await requireAuth(req, res);
-    if (!auth) return;
+//   .post("/change-password", async (req, res) => {
+//   try {
+//     const auth = await requireAuth(req, res);
+//     if (!auth) return;
 
-    const userId = String(auth.id || auth._id);
-    const { currentPassword, newPassword } = req.body || {};
+//     const userId = String(auth.id || auth._id);
+//     const { currentPassword, newPassword } = req.body || {};
 
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: "currentPassword and newPassword are required" });
-    }
+//     if (!currentPassword || !newPassword) {
+//       return res.status(400).json({ message: "currentPassword and newPassword are required" });
+//     }
 
-    const svc = new user_service();
-    const result = await svc.changeOwnPassword(userId, currentPassword, newPassword);
-    return res.json({ success: true, message: "Password changed successfully" });
-  } catch (e) {
-    console.error("POST /users/change-password error:", e);
-    const msg = e?.message || "Server error";
-    const code = msg === "Current password is incorrect" ? 400 : 500;
-    res.status(code).json({ success: false, message: msg });
-  }
-})
+//     const svc = new user_service();
+//     const result = await svc.changeOwnPassword(userId, currentPassword, newPassword);
+//     return res.json({ success: true, message: "Password changed successfully" });
+//   } catch (e) {
+//     console.error("POST /users/change-password error:", e);
+//     const msg = e?.message || "Server error";
+//     const code = msg === "Current password is incorrect" ? 400 : 500;
+//     res.status(code).json({ success: false, message: msg });
+//   }
+// })
 
 // =============== RESET PASSWORD (ADMIN / SUPER ADMIN) ===============
 .post("/reset-password/:id", async (req, res) => {
@@ -260,6 +260,37 @@ UserController
   } catch (e) {
     console.error("POST /users/reset-password/:id error:", e);
     res.status(500).json({ success: false, message: e?.message || "Server error" });
+  }
+})
+
+
+// =============== CHANGE PASSWORD (self) ===============
+.post("/change-password", async (req, res) => {
+  try {
+      const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ message: "Authorization token is required" });
+    const token = authHeader.split(" ")[1];
+
+    const service = new user_service();
+    const decrypted = await service.checkValidUser(token);
+    const userId = String(decrypted?._id || decrypted?.id || decrypted?.userId || "");
+
+
+    const { currentPassword, newPassword } = req.body || {};
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "currentPassword and newPassword are required" });
+    }
+
+    const svc = new user_service();
+    await svc.changeOwnPassword(userId, currentPassword, newPassword);
+
+    return res.json({ success: true, message: "Password changed successfully" });
+  } catch (e) {
+    console.error("POST /api/user/change-password error:", e);
+    const msg = e?.message || "Server error";
+    const code = msg === "Current password is incorrect" ? 400 : 500;
+    res.status(code).json({ success: false, message: msg });
   }
 });
 module.exports = UserController;
