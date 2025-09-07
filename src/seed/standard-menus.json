@@ -37,7 +37,142 @@
         ]
       },
       { "menuName": "Attendance", "children": [{ "submenuName": "Leave Request" }, { "submenuName": "Attendance" }] },
-      { "menuName": "Reimbursment", "children": [] }
+      { "menuName": "Reimbursment", "children": [{ "submenuName": "Petrol Reimbursment" }] }
     ]
+  },
+  {
+  "_id": {
+    "$oid": "689c68a76a3aa714dc76b384"
+  },
+  "roleId": {
+    "$oid": "6884cc051725e1465c06c2b1"
+  },
+  "__v": 0,
+  "createdAt": {
+    "$date": "2025-08-13T10:27:51.067Z"
+  },
+  "main": [
+    {
+      "menuName": "Dashboard",
+      "children": [
+        {
+          "submenuName": "Dashboard"
+        }
+      ]
+    },
+    {
+      "menuName": "Attendance",
+      "children": [
+        {
+          "submenuName": "Leave Request"
+        },
+        {
+          "submenuName": "Attendance"
+        }
+      ]
+    },
+    {
+      "menuName": "Reimbursment",
+      "children": [
+        {
+          "submenuName": "Petrol Reimbursment"
+        }
+      ]
+    }
+  ],
+  "role": "Employee",
+  "updatedAt": {
+    "$date": "2025-08-14T07:24:00.679Z"
   }
+},
+{
+  "_id": {
+    "$oid": "689c68a76a3aa714dc76b385"
+  },
+  "roleId": {
+    "$oid": "6896e80b9c8f8101f0439813"
+  },
+  "__v": 0,
+  "createdAt": {
+    "$date": "2025-08-13T10:27:51.071Z"
+  },
+  "main": [
+    {
+      "menuName": "Dashboard",
+      "children": [
+        {
+          "submenuName": "Dashboard"
+        }
+      ]
+    },
+    {
+      "menuName": "Attendance",
+      "children": [
+        {
+          "submenuName": "Leave Request"
+        },
+        {
+          "submenuName": "Attendance"
+        }
+      ]
+    },
+    {
+      "menuName": "Reimbursment",
+      "children": [
+        {
+          "submenuName": "Petrol Reimbursment"
+        }
+      ]
+    }
+  ],
+  "role": "Intern",
+  "updatedAt": {
+    "$date": "2025-08-14T07:24:00.682Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "689c68a76a3aa714dc76b386"
+  },
+  "roleId": {
+    "$oid": "6896e80b9c8f8101f0439814"
+  },
+  "__v": 0,
+  "createdAt": {
+    "$date": "2025-08-13T10:27:51.071Z"
+  },
+  "main": [
+    {
+      "menuName": "Dashboard",
+      "children": [
+        {
+          "submenuName": "Dashboard"
+        }
+      ]
+    },
+    {
+      "menuName": "Attendance",
+      "children": [
+        {
+          "submenuName": "Leave Request"
+        },
+        {
+          "submenuName": "Attendance"
+        }
+      ]
+    },
+    {
+      "menuName": "Reimbursment",
+      "children": [
+        {
+          "submenuName": "Petrol Reimbursment"
+        }
+      ]
+    }
+  ],
+  "role": "Intern",
+  "updatedAt": {
+    "$date": "2025-08-14T07:24:00.682Z"
+  }
+}
 ]
