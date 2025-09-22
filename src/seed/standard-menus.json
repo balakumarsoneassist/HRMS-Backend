@@ -5,7 +5,8 @@
     "main": [
       { "menuName": "Dashboard", "children": [{ "submenuName": "Dashboard" }] },
       { "menuName": "Access", "children": [{ "submenuName": "Access" }, { "submenuName": "Access Define" }] },
-      { "menuName": "User Management", "children": [{ "submenuName": "Add User" }, { "submenuName": "View Users" }] },
+                  
+      { "menuName": "User Management", "children": [{ "submenuName": "Add User" }, { "submenuName": "View Users" },{ "submenuName": "ViewEdit Users" }]  },
       { "menuName": "Reports", "children": [{ "submenuName": "Daily Report" }, { "submenuName": "Monthly Report" }] },
       {
         "menuName": "Employee's Approval",
@@ -18,6 +19,12 @@
         "menuName": "Holiday Planning",
         "children": [
           { "submenuName": "Holiday Planning" }
+        ]
+      },
+      {
+        "menuName": "Assign Templates",
+        "children": [
+          { "submenuName": "Letter of Appointment" }
         ]
       }
     ]
@@ -36,21 +43,19 @@
           { "submenuName": "Employee Petrol Approval" }
         ]
       },
+      {
+        "menuName": "Certificate",
+        "children": [
+          { "submenuName": "Letters of Appointment" },
+           { "submenuName": "Payslip" }
+        ]
+      },
       { "menuName": "Attendance", "children": [{ "submenuName": "Leave Request" }, { "submenuName": "Attendance" }] },
       { "menuName": "Reimbursment", "children": [{ "submenuName": "Petrol Reimbursment" }] }
     ]
   },
   {
-  "_id": {
-    "$oid": "689c68a76a3aa714dc76b384"
-  },
-  "roleId": {
-    "$oid": "6884cc051725e1465c06c2b1"
-  },
-  "__v": 0,
-  "createdAt": {
-    "$date": "2025-08-13T10:27:51.067Z"
-  },
+  "roleId":"6884cc051725e1465c06c2b1",
   "main": [
     {
       "menuName": "Dashboard",
@@ -60,6 +65,13 @@
         }
       ]
     },
+    {
+        "menuName": "Certificate",
+        "children": [
+          { "submenuName": "Letters of Appointment" },
+           { "submenuName": "Payslip" }
+        ]
+      },
     {
       "menuName": "Attendance",
       "children": [
@@ -80,22 +92,10 @@
       ]
     }
   ],
-  "role": "Employee",
-  "updatedAt": {
-    "$date": "2025-08-14T07:24:00.679Z"
-  }
+  "role": "Employee"
 },
 {
-  "_id": {
-    "$oid": "689c68a76a3aa714dc76b385"
-  },
-  "roleId": {
-    "$oid": "6896e80b9c8f8101f0439813"
-  },
-  "__v": 0,
-  "createdAt": {
-    "$date": "2025-08-13T10:27:51.071Z"
-  },
+  "roleId":"6896e80b9c8f8101f0439813",
   "main": [
     {
       "menuName": "Dashboard",
@@ -105,6 +105,14 @@
         }
       ]
     },
+    {
+        "menuName": "Certificate",
+        "children": [
+          { "submenuName": "Letters of Appointment" },
+           { "submenuName": "Payslip" }
+
+        ]
+      },
     {
       "menuName": "Attendance",
       "children": [
@@ -116,6 +124,7 @@
         }
       ]
     },
+    
     {
       "menuName": "Reimbursment",
       "children": [
@@ -125,54 +134,6 @@
       ]
     }
   ],
-  "role": "Intern",
-  "updatedAt": {
-    "$date": "2025-08-14T07:24:00.682Z"
-  }
-},
-{
-  "_id": {
-    "$oid": "689c68a76a3aa714dc76b386"
-  },
-  "roleId": {
-    "$oid": "6896e80b9c8f8101f0439814"
-  },
-  "__v": 0,
-  "createdAt": {
-    "$date": "2025-08-13T10:27:51.071Z"
-  },
-  "main": [
-    {
-      "menuName": "Dashboard",
-      "children": [
-        {
-          "submenuName": "Dashboard"
-        }
-      ]
-    },
-    {
-      "menuName": "Attendance",
-      "children": [
-        {
-          "submenuName": "Leave Request"
-        },
-        {
-          "submenuName": "Attendance"
-        }
-      ]
-    },
-    {
-      "menuName": "Reimbursment",
-      "children": [
-        {
-          "submenuName": "Petrol Reimbursment"
-        }
-      ]
-    }
-  ],
-  "role": "Intern",
-  "updatedAt": {
-    "$date": "2025-08-14T07:24:00.682Z"
-  }
+  "role": "Intern"
 }
 ]

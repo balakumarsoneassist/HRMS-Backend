@@ -44,70 +44,36 @@ const markAbsentAttendance = async () => {
     const now = new Date();
 
     // Run only after 11 AM
-    if (now.getHours() < 11) {
+    if (now.getHours() < 8) {
       console.log("⏳ Waiting until 11 AM...");
       return;
     }
+    const today = new Date();
 
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    // Start of day (00:00:00 UTC)
+    const startOfDay = new Date(today);
+    startOfDay.setUTCHours(0, 0, 0, 0);
+
+    // End of day (23:59:59 UTC)
+    const endOfDay = new Date(today);
+    endOfDay.setUTCHours(23, 59, 59, 999);
 
     const userservice = new user_service();
     const attendanceservice = new attendance_service();
 
     const users = await userservice.retrieveAll({
       status: true,
-      doj: { $lte: startOfDay },
     });
 
     for (let user of users) {
       // ✅ Check using exact startOfDay date
       const alreadyMarked = await attendanceservice.retrieve({
         userId: user._id,
-        date: startOfDay,
-      });
-
-      const pendingLeave = await attendanceservice.retrieve({
-        userId: user._id,
-        date: startOfDay,
+        date: { $gte: startOfDay, $lte: endOfDay },
+        attendanceType: "Present",
         approved: null,
       });
-
-      const rejectedLeave = await attendanceservice.retrieve({
-        userId: user._id,
-        date: startOfDay,
-        approved: false,
-      });
-
-      // Case 1: Absent and not marked yet
-      if (!alreadyMarked) {
-        await attendanceservice.add(
-          {
-            userId: user._id,
-              date: startOfDay,
-              attendanceType: "Absent",
-              remarks: "Auto-marked Absent (not logged in by 11 AM)",
-          
-          },
-          { upsert: true }
-        );
-        await sendAbsentNotification(user);
-        console.log(`📩 Absent Email sent for ${user.user_name}`);
-      }
-
-      // Case 2: Leave request exists but not approved
-      else if (pendingLeave || rejectedLeave) {
-        await attendanceservice.update(
-          {
-              attendanceType: "LOP",
-              remarks: "Not Approved leave",
-            },
-          { userId: user._id, date: startOfDay },
-          
-        );
-        await sendAbsentNotification(user);
-        console.log(`📩 LOP Email sent for ${user.user_name}`);
-      }
+      console.log(startOfDay, alreadyMarked);
     }
 
     console.log("✅ Auto attendance job completed successfully.");
@@ -120,3 +86,56 @@ const markAbsentAttendance = async () => {
 cron.schedule("1 11 * * *", markAbsentAttendance);
 
 module.exports = markAbsentAttendance;
+      // const pendingLeave = await attendanceservice.retrieve({
+      //   userId: user._id,
+      //   date: startOfDay,
+      //   approved: null,
+      // });
+
+      // const rejectedLeave = await attendanceservice.retrieve({
+      //   userId: user._id,
+      //   date: startOfDay,
+      //   approved: false,
+      // });
+
+      // // Case 1: Absent and not marked yet
+      // if (!alreadyMarked) {
+      //   await attendanceservice.add(
+      //     {
+      //       userId: user._id,
+      //         date: startOfDay,
+      //         attendanceType: "Absent",
+      //         remarks: "Auto-marked Absent (not logged in by 11 AM)",
+
+      //     },
+      //     { upsert: true }
+      //   );
+      //   await sendAbsentNotification(user);
+      //   console.log(`📩 Absent Email sent for ${user.user_name}`);
+      // }
+
+      // // Case 2: Leave request exists but not approved
+      // else if (pendingLeave || rejectedLeave) {
+      //   await attendanceservice.update(
+      //     {
+      //         attendanceType: "LOP",
+      //         remarks: "Not Approved leave",
+      //       },
+      //     { userId: user._id, date: startOfDay },
+
+      //   );
+      //   await sendAbsentNotification(user);
+      //   console.log(`📩 LOP Email sent for ${user.user_name}`);
+      // }
+//     }
+
+//     console.log("✅ Auto attendance job completed successfully.");
+//   } catch (err) {
+//     console.error("❌ Error in auto attendance job:", err.message);
+//   }
+// };
+
+// // ⏰ Schedule cron job daily at 11:01 AM
+// cron.schedule("* * * * *", markAbsentAttendance);
+
+// module.exports = markAbsentAttendance;

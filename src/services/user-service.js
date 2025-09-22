@@ -43,6 +43,10 @@ class UserService extends crud_service {
                 children: [{ submenuName: "Dashboard" }],
               },
               {
+                menuName: "Assign Templates",
+                children: [{ submenuName: "Letter of Appointment" }],
+              },
+              {
                 menuName: "Access",
                 children: [
                   { submenuName: "Access" },
@@ -54,6 +58,7 @@ class UserService extends crud_service {
                 children: [
                   { submenuName: "Add User" },
                   { submenuName: "View Users" },
+                  { submenuName: "ViewEdit Users" },
                 ],
               },
               {
@@ -92,6 +97,13 @@ class UserService extends crud_service {
                 children: [{ submenuName: "Dashboard" }],
               },
               {
+                menuName: "Certificate",
+                children: [
+                  { submenuName: "Letters of Appointment" },
+                  { submenuName: "Payslip" }
+                ],
+              },
+              {
                 menuName: "User Management",
                 children: [
                   { submenuName: "Add User" },
@@ -119,7 +131,10 @@ class UserService extends crud_service {
                   { submenuName: "Attendance" },
                 ],
               },
-              { menuName: "Reimbursment", children: [] },
+              {
+                menuName: "Reimbursment",
+                children: [{ submenuName: "Petrol Reimbursment" }],
+              },
             ],
             access: [superAdminRoleId],
             members: [],
@@ -141,6 +156,10 @@ class UserService extends crud_service {
                 ],
               },
               {
+                menuName: "Certificate",
+                children: [{ submenuName: "Letters of Appointment" }, { submenuName: "Payslip" }],
+              },
+              {
                 menuName: "Reimbursment",
                 children: [{ submenuName: "Petrol Reimbursment" }],
               },
@@ -156,6 +175,10 @@ class UserService extends crud_service {
               {
                 menuName: "Dashboard",
                 children: [{ submenuName: "Dashboard" }],
+              },
+              {
+                menuName: "Certificate",
+                children: [{ submenuName: "Letters of Appointment" }, { submenuName: "Payslip" }],
               },
               {
                 menuName: "Attendance",
@@ -516,19 +539,19 @@ class UserService extends crud_service {
       );
       return result;
     };
-  
-  this.validatePasswordStrength = (pwd) => {
+
+    this.validatePasswordStrength = (pwd) => {
       const tooShort = typeof pwd !== "string" || pwd.length < 8;
-      const upper    = /[A-Z]/.test(pwd);
-      const lower    = /[a-z]/.test(pwd);
-      const number   = /\d/.test(pwd);
-      const special  = /[^A-Za-z0-9]/.test(pwd);
+      const upper = /[A-Z]/.test(pwd);
+      const lower = /[a-z]/.test(pwd);
+      const number = /\d/.test(pwd);
+      const special = /[^A-Za-z0-9]/.test(pwd);
       if (tooShort || !upper || !lower || !number || !special) {
         const reason = [];
         if (tooShort) reason.push("at least 8 characters");
-        if (!upper)   reason.push("one uppercase");
-        if (!lower)   reason.push("one lowercase");
-        if (!number)  reason.push("one digit");
+        if (!upper) reason.push("one uppercase");
+        if (!lower) reason.push("one lowercase");
+        if (!number) reason.push("one digit");
         if (!special) reason.push("one special character");
         const msg = `Password must contain ${reason.join(", ")}.`;
         const err = new Error(msg);
@@ -569,10 +592,13 @@ class UserService extends crud_service {
     //   await this.model.updateOne({ _id: userId }, { $set: { password: hash } });
     //   return true;
     // };
-// Change own password (requires current password)
+    // Change own password (requires current password)
     this.changeOwnPassword = async (userId, currentPassword, newPassword) => {
       this.validatePasswordStrength(newPassword);
-      const { ok, user } = await this.verifyUserPassword(userId, currentPassword);
+      const { ok, user } = await this.verifyUserPassword(
+        userId,
+        currentPassword
+      );
       if (!ok) {
         const err = new Error("Current password is incorrect");
         err.code = "BAD_PASSWORD";
@@ -581,14 +607,16 @@ class UserService extends crud_service {
       // Avoid reusing the same password
       const sameAsOld = await bcrypt.compare(newPassword, user.password);
       if (sameAsOld) {
-        const err = new Error("New password must be different from the current password");
+        const err = new Error(
+          "New password must be different from the current password"
+        );
         err.code = "PASSWORD_REUSE";
         throw err;
       }
       const hash = await bcrypt.hash(newPassword, 10);
       await this.model.updateOne({ _id: userId }, { $set: { password: hash } });
-      return true;
-    };
+      return true;
+    };
     // Admin reset (no current password required)
     this.setPasswordDirect = async (userId, newPassword) => {
       this.validatePasswordStrength(newPassword);
@@ -600,7 +628,9 @@ class UserService extends crud_service {
       }
       const sameAsOld = await bcrypt.compare(newPassword, user.password);
       if (sameAsOld) {
-        const err = new Error("New password must be different from the old password");
+        const err = new Error(
+          "New password must be different from the old password"
+        );
         err.code = "PASSWORD_REUSE";
         throw err;
       }
@@ -608,9 +638,7 @@ class UserService extends crud_service {
       await this.model.updateOne({ _id: userId }, { $set: { password: hash } });
       return true;
     };
-  
-}
-
+  }
 }
 
 module.exports = UserService;
