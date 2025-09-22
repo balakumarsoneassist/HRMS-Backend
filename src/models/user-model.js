@@ -34,6 +34,7 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
     doj: { type: Date, default: Date.now },
+    dob: { type: Date, default: Date.now },
     kmsCharge:{ type: Number , default :10},
     creditpetrol: [
       {
