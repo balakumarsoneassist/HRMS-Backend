@@ -11,10 +11,11 @@ const LeavetypeController = require("../controllers/leaveType-controller");
 const HolidaysController = require("../controllers/holidays-controller");
 const UserAttendanceReportController = require("../controllers/user-attendance-report-controller");
 const uploadUserRoutes = require("../routes/uploadUser.routes");
-
+const UserDocController = require("../controllers/user-doc-controller")
 const masterRouter = express.Router();
 masterRouter
   .use("/api/upload-users", uploadUserRoutes)
+  .use("/user/upload-docs",UserDocController)
   .use("/user", user_controller)
   .use("/access", access_controller)
   .use("/attendance", attendance_controller)
