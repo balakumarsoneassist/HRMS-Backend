@@ -12,6 +12,7 @@ const HolidaysController = require("../controllers/holidays-controller");
 const UserAttendanceReportController = require("../controllers/user-attendance-report-controller");
 const uploadUserRoutes = require("../routes/uploadUser.routes");
 const UserDocController = require("../controllers/user-doc-controller")
+const PayloadController = require("../controllers/payload-controller")
 const masterRouter = express.Router();
 masterRouter
   .use("/api/upload-users", uploadUserRoutes)
@@ -24,6 +25,7 @@ masterRouter
   .use("/leave-type", LeavetypeController)
   .use("/standardmenu", standardMenu_controller)
   .use("/userattendancereport", UserAttendanceReportController)
-
+  .use("/payloads", PayloadController)
+  
   .use("/holidays", HolidaysController);
 module.exports = masterRouter;
