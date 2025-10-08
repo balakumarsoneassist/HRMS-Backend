@@ -293,5 +293,26 @@ UserController
     const code = msg === "Current password is incorrect" ? 400 : 500;
     res.status(code).json({ success: false, message: msg });
   }
+})
+
+
+// ✅ Soft Delete user
+.delete("/:id", async (req, res) => {
+  try {
+    const result = await userService.softDeleteUser(req.params.id, req.body.deletedBy, req.body.reason);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+})
+
+// ✅ Restore user
+.post("/restore/:id", async (req, res) => {
+  try {
+    const result = await userService.restoreUser(req.params.id);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 module.exports = UserController;
