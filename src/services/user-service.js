@@ -639,6 +639,63 @@ class UserService extends crud_service {
       return true;
     };
   }
+
+    // Custom delete function — move to deleted_user before removing
+  async softDeleteUser(userId, deletedBy, reason) {
+    const user = await this.model.findById(userId);
+    if (!user) throw new Error("User not found");
+
+    // Move to deleted_user collection
+    const deletedUser = new DeletedUserModel({
+      user_name: user.user_name,
+      mobile_no: user.mobile_no,
+      empId: user.empId,
+      email: user.email,
+      role: user.role,
+      position: user.position,
+      designation: user.designation,
+      department: user.department,
+      deletedBy: deletedBy || null,
+      deletedReason: reason || "Deleted by admin",
+      originalCreatedAt: user.createdAt,
+      originalUpdatedAt: user.updatedAt,
+      backupData: user.toObject(),
+    });
+
+    await deletedUser.save();
+
+    // Remove from main user collection
+    await this.model.findByIdAndDelete(userId);
+
+    return { message: "User moved to deleted_user collection" };
+  }
+
+  // Restore deleted user from deleted_user collection
+  async restoreUser(deletedUserId) {
+    const deletedUser = await DeletedUserModel.findById(deletedUserId);
+    if (!deletedUser) throw new Error("Deleted user not found");
+
+    const restoredUser = new this.model({
+      user_name: deletedUser.user_name,
+      mobile_no: deletedUser.mobile_no,
+      empId: deletedUser.empId,
+      email: deletedUser.email,
+      role: deletedUser.role,
+      position: deletedUser.position,
+      designation: deletedUser.designation,
+      department: deletedUser.department,
+      createdby: deletedUser.deletedBy || null,
+      doj: deletedUser.originalCreatedAt || Date.now(),
+      dob: deletedUser.originalCreatedAt || Date.now(),
+    });
+
+    await restoredUser.save();
+
+    // Remove from deleted_user collection
+    await DeletedUserModel.findByIdAndDelete(deletedUserId);
+
+    return { message: "User restored successfully", data: restoredUser };
+  }
 }
 
 module.exports = UserService;

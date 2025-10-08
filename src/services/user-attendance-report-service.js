@@ -3,6 +3,7 @@ const path = require("path");
 const attendanceModel = require("../models/attendance-model");
 const userAttendanceReportModel = require("../models/user-attendance-report-model");
 const { getVisibleUserIdsFor } = require("../services/visibility.service");
+const HolidayService = require('../services/holiday-service'); // ✅ import HolidayService
 
 class UserAttendanceReportService {
   constructor() {
@@ -119,8 +120,11 @@ async dayReport(date, page = 1, limit = 10, viewerId) {
 
     const filter = { date: { $gte: start, $lte: end } };
     if (visibleIds?.length) filter.userId = { $in: visibleIds };
+console.log(filter);
 
     const existing = await userAttendanceReportModel.findOne(filter);
+console.log(existing);
+
     if (existing) {
       const skip = (page - 1) * limit;
       const [data, total] = await Promise.all([
@@ -209,15 +213,17 @@ async getPersistedMonthlyPivot(year, month, viewerId) {
   const filter = { date: { $gte: start, $lte: end } };
   if (visibleIds?.length) filter.userId = { $in: visibleIds };
 
-  const tz = 'Asia/Kolkata';
+  const tz = "Asia/Kolkata";
   const fmtIST = (d) =>
-    new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(d));
+    new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(d));
 
-  const records = await userAttendanceReportModel.find(filter)
-    .populate('userId', 'user_name')
+  // ✅ populate both user_name and empId
+  const records = await userAttendanceReportModel
+    .find(filter)
+    .populate("userId", "user_name empId")
     .sort({ date: 1 });
 
-  // Collect all dates of the month
+  // Collect all dates for the month
   const allDatesSet = new Set();
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
     allDatesSet.add(fmtIST(d));
@@ -227,7 +233,86 @@ async getPersistedMonthlyPivot(year, month, viewerId) {
   }
   const dates = Array.from(allDatesSet).sort();
 
+  // --- Build Pivot ---
   const pivot = {};
+  for (const rec of records) {
+    const uname = rec.userId?.user_name || "Unknown";
+    const empId = rec.userId?.empId || "Unknown";
+    const d = fmtIST(rec.date);
+
+    if (!pivot[empId]) {
+      pivot[empId] = {
+        empId,
+        user_name: uname,
+        _totals: { present: 0, totalDays: dates.length },
+      };
+      dates.forEach((dt) => (pivot[empId][dt] = null));
+    }
+
+    if (rec.isHoliday) {
+      pivot[empId][d] = "holiday";
+    } else if (rec.attendanceType?.toLowerCase() === "present") {
+      pivot[empId][d] = "present";
+      pivot[empId]._totals.present++;
+    } else if (rec.attendanceType) {
+      pivot[empId][d] = rec.attendanceType.toLowerCase();
+    }
+  }
+
+  // Format totals like "present/totalDays"
+  for (const eid in pivot) {
+    const { present, totalDays } = pivot[eid]._totals;
+    pivot[eid]._totals = `${present}/${totalDays}`;
+  }
+
+  // ✅ Return empId and name explicitly
+  return { dates, users: pivot };
+}
+
+
+
+async getPersistedMonthlyPivotHoliday(year, month, viewerId) {
+  const visibleIds = await getVisibleUserIdsFor(viewerId);
+
+  const start = new Date(year, month - 1, 1, 0, 0, 0, 0);
+  const end = new Date(year, month, 0, 23, 59, 59, 999);
+
+  const filter = { date: { $gte: start, $lte: end } };
+  if (visibleIds?.length) filter.userId = { $in: visibleIds };
+
+  const tz = 'Asia/Kolkata';
+  const fmtIST = (d) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(d));
+
+  // ✅ Fetch attendance records
+  const records = await userAttendanceReportModel.find(filter)
+    .populate('userId', 'user_name')
+    .sort({ date: 1 });
+
+  // ✅ Fetch holidays from holiday-service (using its list() method)
+  const holidayService = new HolidayService();
+  const holidaysResponse = await holidayService.list(); // matches .get('/rules', routes.list)
+  const holidays = holidaysResponse?.data || holidaysResponse || [];
+
+  // ✅ Collect all dates of the month
+  const allDatesSet = new Set();
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    allDatesSet.add(fmtIST(d));
+  }
+
+  // Add attendance & holiday dates
+  for (const rec of records) allDatesSet.add(fmtIST(rec.date));
+  for (const h of holidays) {
+    const hDate = h.date ? fmtIST(h.date) : null;
+    if (hDate) allDatesSet.add(hDate);
+  }
+
+  const dates = Array.from(allDatesSet).sort();
+
+  // ✅ Build pivot data
+  const pivot = {};
+
+  // Fill attendance data
   for (const rec of records) {
     const uname = rec.userId?.user_name || 'Unknown';
     const d = fmtIST(rec.date);
@@ -237,7 +322,6 @@ async getPersistedMonthlyPivot(year, month, viewerId) {
       dates.forEach(dt => (pivot[uname][dt] = null));
     }
 
-    // Attendance calculation
     if (rec.isHoliday) {
       pivot[uname][d] = 'holiday';
     } else if (rec.attendanceType?.toLowerCase() === 'present') {
@@ -248,13 +332,25 @@ async getPersistedMonthlyPivot(year, month, viewerId) {
     }
   }
 
-  // Format totals as "present/totalDays"
+  // ✅ Fill holiday-only days (even if no attendance record exists)
+  for (const h of holidays) {
+    const hDate = h.date ? fmtIST(h.date) : null;
+    if (!hDate) continue;
+
+    for (const uname in pivot) {
+      if (!pivot[uname][hDate]) {
+        pivot[uname][hDate] = 'holiday';
+      }
+    }
+  }
+
+  // ✅ Format totals as "present/totalDays"
   for (const uname in pivot) {
     const { present, totalDays } = pivot[uname]._totals;
     pivot[uname]._totals = `${present}/${totalDays}`;
   }
 
-  return { dates, users: pivot };
+  return { dates, users: pivot, holidays };
 }
 
 
