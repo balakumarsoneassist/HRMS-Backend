@@ -48,20 +48,38 @@ UserAttendanceReportController.post("/generate/day/:date", async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
 
+    // 🧩 Parse date safely
+    const targetDate = new Date(req.params.date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // ❌ Validate: must not be today or a future date
+    if (isNaN(targetDate)) {
+      return res.status(400).json({ success: false, message: "Invalid date format" });
+    }
+    // if (targetDate >= today) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Cannot generate report for present or future dates"
+    //   });
+    // }
+
+    // ✅ Proceed for past dates only
     const result = await reportService.appendDayReport(
       req.params.date,
-      decrypted.id,      // generatedBy
+      decrypted.id,   // generatedBy
       page,
       limit,
-      decrypted.id       // 👈 scope by visibility
+      decrypted.id    // viewer scope
     );
 
     res.json({ success: true, mode: result.mode, ...result });
   } catch (err) {
-    console.error("POST /generate/day error", err);
+    console.error("❌ POST /generate/day error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
 
 /** ---------- MONTHLY REPORT FROM SNAPSHOTS ---------- */
 UserAttendanceReportController.get("/persisted/month/:year/:month", async (req, res) => {

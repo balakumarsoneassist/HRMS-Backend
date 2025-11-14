@@ -34,6 +34,14 @@ const uploadUserSchema = new mongoose.Schema(
         marksheet: { type: String },
       },
     ],
+
+     others: [
+      {
+        certificatename: { type: String },
+        certificate: { type: String },
+        marksheet: { type: String },
+      },
+    ],
   },
   { timestamps: true }
 );
