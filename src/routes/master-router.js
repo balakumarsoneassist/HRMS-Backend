@@ -14,6 +14,7 @@ const uploadUserRoutes = require("../routes/uploadUser.routes");
 const UserDocController = require("../controllers/user-doc-controller")
 const PayloadController = require("../controllers/payload-controller");
 const DeletedUserController = require("../controllers/deleted-user-controller");
+const chatbotRoute = require('../routes/chatbot-route')
 const masterRouter = express.Router();
 masterRouter
   .use("/api/upload-users", uploadUserRoutes)
@@ -28,5 +29,7 @@ masterRouter
   .use("/userattendancereport", UserAttendanceReportController)
   .use("/payloads", PayloadController)
   .use("/deleted-users", DeletedUserController) 
+  .use("/chatbot",chatbotRoute)
   .use("/holidays", HolidaysController);
+
 module.exports = masterRouter;

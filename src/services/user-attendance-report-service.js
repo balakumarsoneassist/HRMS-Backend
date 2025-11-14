@@ -45,11 +45,33 @@ class UserAttendanceReportService {
       } else {
         calculatedType = "LOP";
         if (loginTime > shiftStart) {
-          resonforLOP = `Late login at ${loginTime.toLocaleTimeString()}`;
-        }
-        if (logoutTime < shiftEnd) {
-          resonforLOP += (resonforLOP ? "; " : "") + `Early logout at ${logoutTime.toLocaleTimeString()}`;
-        }
+  const lateMs = loginTime - shiftStart;
+  const lateMinutes = Math.floor(lateMs / (1000 * 60));
+  const lateHours = Math.floor(lateMinutes / 60);
+  const lateMins = lateMinutes % 60;
+  const lateText =
+    lateHours > 0
+      ? `${lateHours} hr ${lateMins} min`
+      : `${lateMins} min`;
+
+  resonforLOP = `Late login by ${lateText} at ${loginTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+if (logoutTime < shiftEnd) {
+  const earlyMs = shiftEnd - logoutTime;
+  const earlyMinutes = Math.floor(earlyMs / (1000 * 60));
+  const earlyHours = Math.floor(earlyMinutes / 60);
+  const earlyMins = earlyMinutes % 60;
+  const earlyText =
+    earlyHours > 0
+      ? `${earlyHours} hr ${earlyMins} min`
+      : `${earlyMins} min`;
+
+  resonforLOP +=
+    (resonforLOP ? "; " : "") +
+    `Early logout by ${earlyText} at ${logoutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
       }
     } else if (r.attendanceType === "Present") {
       calculatedType = "LOP";
@@ -111,52 +133,100 @@ async dayReport(date, page = 1, limit = 10, viewerId) {
 
 
   /** ------------------ DAILY APPEND SNAPSHOT ------------------ */
+  // async appendDayReport(date, generatedBy, page = 1, limit = 10, viewerId) {
+  //   const visibleIds = await getVisibleUserIdsFor(viewerId);
+
+  //   const day = new Date(date);
+  //   const start = new Date(day); start.setHours(0, 0, 0, 0);
+  //   const end = new Date(day); end.setHours(23, 59, 59, 999);
+
+  //   const filter = { date: { $gte: start, $lte: end } };
+  //   if (visibleIds?.length) filter.userId = { $in: visibleIds };
+  //   const existing = await userAttendanceReportModel.findOne(filter);
+  //   if (existing) {
+  //     const skip = (page - 1) * limit;
+  //     const [data, total] = await Promise.all([
+  //       userAttendanceReportModel.find(filter)
+  //         .populate("userId", "empId user_name email roleId")
+  //         .populate("generatedBy", "user_name email empId")
+  //         .populate("changedBy", "empId user_name email") // ✅ include changedBy
+  //         .skip(skip).limit(limit).sort({ date: 1 }),
+  //       userAttendanceReportModel.countDocuments(filter)
+  //     ]);
+  //     return { data, total, page, limit, mode: "already-exists" };
+  //   }
+
+  //   const rows = (await this.dayReport(date, page, limit, viewerId)).data;
+
+  //   for (const row of rows) {
+  //     const existsForUser = await userAttendanceReportModel.findOne({
+  //       userId: row.userId?._id,
+  //       date: row.date,
+  //       generatedBy: { $ne: null }
+  //     });
+
+  //     if (existsForUser) continue;
+
+  //     await new userAttendanceReportModel({
+  //       ...row,
+  //       generatedBy
+  //     }).save();
+  //   }
+
+  //   return { data: rows, total: rows.length, page, limit, mode: "created" };
+  // }
+
+
   async appendDayReport(date, generatedBy, page = 1, limit = 10, viewerId) {
-    const visibleIds = await getVisibleUserIdsFor(viewerId);
+  const visibleIds = await getVisibleUserIdsFor(viewerId);
 
-    const day = new Date(date);
-    const start = new Date(day); start.setHours(0, 0, 0, 0);
-    const end = new Date(day); end.setHours(23, 59, 59, 999);
+  const day = new Date(date);
+  const start = new Date(day); start.setHours(0, 0, 0, 0);
+  const end = new Date(day); end.setHours(23, 59, 59, 999);
 
-    const filter = { date: { $gte: start, $lte: end } };
-    if (visibleIds?.length) filter.userId = { $in: visibleIds };
-console.log(filter);
+  const dateFilter = { date: { $gte: start, $lte: end } };
+  if (visibleIds?.length) dateFilter.userId = { $in: visibleIds };
 
-    const existing = await userAttendanceReportModel.findOne(filter);
-console.log(existing);
+  // 🧾 Step 1: Get all existing users who already have a report for that date
+  const existingUserIds = await userAttendanceReportModel.distinct("userId", dateFilter);
 
-    if (existing) {
-      const skip = (page - 1) * limit;
-      const [data, total] = await Promise.all([
-        userAttendanceReportModel.find(filter)
-          .populate("userId", "empId user_name email roleId")
-          .populate("generatedBy", "user_name email empId")
-          .populate("changedBy", "empId user_name email") // ✅ include changedBy
-          .skip(skip).limit(limit).sort({ date: 1 }),
-        userAttendanceReportModel.countDocuments(filter)
-      ]);
-      return { data, total, page, limit, mode: "already-exists" };
-    }
+  // 🧮 Step 2: Generate full report for the day (all visible users)
+  const allRows = (await this.dayReport(date, page, limit, viewerId)).data;
 
-    const rows = (await this.dayReport(date, page, limit, viewerId)).data;
+  // 🆕 Step 3: Filter rows for users who don’t have existing reports
+  const newRows = allRows.filter(row => 
+    !existingUserIds.some(id => id.toString() === row.userId?._id?.toString())
+  );
 
-    for (const row of rows) {
-      const existsForUser = await userAttendanceReportModel.findOne({
-        userId: row.userId?._id,
-        date: row.date,
-        generatedBy: { $ne: null }
-      });
-
-      if (existsForUser) continue;
-
-      await new userAttendanceReportModel({
-        ...row,
-        generatedBy
-      }).save();
-    }
-
-    return { data: rows, total: rows.length, page, limit, mode: "created" };
+  // 🧩 Step 4: Append only missing users
+  for (const row of newRows) {
+    await new userAttendanceReportModel({
+      ...row,
+      generatedBy
+    }).save();
   }
+
+  // 🗂️ Step 5: Always return the latest paginated list for that day
+  const skip = (page - 1) * limit;
+  const [data, total] = await Promise.all([
+    userAttendanceReportModel.find(dateFilter)
+      .populate("userId", "empId user_name email roleId")
+      .populate("generatedBy", "user_name email empId")
+      .populate("changedBy", "empId user_name email")
+      .skip(skip).limit(limit).sort({ date: 1 }),
+    userAttendanceReportModel.countDocuments(dateFilter)
+  ]);
+
+  // 🏁 Return with mode based on new insertions
+  return {
+    data,
+    total,
+    page,
+    limit,
+    mode: newRows.length > 0 ? "appended" : "already-up-to-date",
+    appendedCount: newRows.length
+  };
+}
 
   /** ------------------ PERSISTED MONTHLY ------------------ */
   async getPersistedMonthlyReport(year, month, page = 1, limit = 10, viewerId) {

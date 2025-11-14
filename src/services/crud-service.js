@@ -48,6 +48,44 @@ class CrudService {
     };
   }
 
+  async listForTableleave(query, options = {}) {
+  const page = parseInt(query.page) || 1;
+  const limit = parseInt(query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  // ✅ Extract known Mongo filter keys if present
+  const filters = {};
+  for (let key in query) {
+    if (key === "page" || key === "limit") continue;
+
+    // If the value is an object (e.g., { $in: [...] } or { $lte: ... })
+    if (typeof query[key] === "object" && !Array.isArray(query[key])) {
+      filters[key] = query[key];
+    }
+    // If it's a string filter
+    else {
+      const path = this.model?.schema?.path(key);
+      if (path?.instance === "String") {
+        filters[key] = { $regex: new RegExp(String(query[key]), "i") };
+      } else {
+        filters[key] = query[key];
+      }
+    }
+  }
+
+  const data = await this.model
+    .find(filters)
+    .sort(options.sort || { _id: -1 })
+    .skip(skip)
+    .limit(limit)
+    .populate("userId");
+
+  const total = await this.model.countDocuments(filters);
+
+  return { data, total, page, limit };
+}
+
+
 async accesslistForTable(req, visibleUserIds = []) {
   try {
     const q = req.query || {};

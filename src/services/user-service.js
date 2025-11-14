@@ -1,6 +1,8 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const user_model = require("../models/user-model");
+const deleteduser_model = require("../models/deleted-user-model");
+const DeletedUserModel = require("../models/deleted-user-model");
 const access_model = require("../models/access-model");
 const access_service = require("../services/access-service");
 const crud_service = require("./crud-service");
@@ -540,6 +542,15 @@ class UserService extends crud_service {
       return result;
     };
 
+    this.leaveAdd = async (userId, type, add) => {
+      let service = new leaveType_service();
+      let result = await service.update(
+        { value: add },
+        { userId: userId, label: type }
+      );
+      return result;
+    };
+
     this.validatePasswordStrength = (pwd) => {
       const tooShort = typeof pwd !== "string" || pwd.length < 8;
       const upper = /[A-Z]/.test(pwd);
@@ -640,62 +651,93 @@ class UserService extends crud_service {
     };
   }
 
-    // Custom delete function — move to deleted_user before removing
-  async softDeleteUser(userId, deletedBy, reason) {
-    const user = await this.model.findById(userId);
-    if (!user) throw new Error("User not found");
+// ✅ Move user to deleted_user collection (soft delete)
 
-    // Move to deleted_user collection
-    const deletedUser = new DeletedUserModel({
-      user_name: user.user_name,
-      mobile_no: user.mobile_no,
-      empId: user.empId,
-      email: user.email,
-      role: user.role,
-      position: user.position,
-      designation: user.designation,
-      department: user.department,
-      deletedBy: deletedBy || null,
-      deletedReason: reason || "Deleted by admin",
-      originalCreatedAt: user.createdAt,
-      originalUpdatedAt: user.updatedAt,
-      backupData: user.toObject(),
-    });
+async softDeleteUser(userId, deletedBy, reason) {
+  const user = await this.model.findById(userId);
+  if (!user) throw new Error("User not found");
 
-    await deletedUser.save();
+  // Create a deleted record
+  const deletedUser = new DeletedUserModel({
+    user_name: user.user_name,
+    mobile_no: user.mobile_no,
+    empId: user.empId,
+    email: user.email,
+    role: user.role,
+    position: user.position,
+    designation: user.designation,
+    department: user.department,
+    deletedBy: deletedBy || null,
+    deletedReason: reason || "Deleted by admin",
+    originalCreatedAt: user.createdAt,
+    originalUpdatedAt: user.updatedAt,
+    backupData: user.toObject(),
+  });
 
-    // Remove from main user collection
+  try {
+    // ✅ Save deleted record
+    const savedDeletedUser = await deletedUser.save();
+
+    // 🧾 Verification step
+    const verify = await DeletedUserModel.findById(savedDeletedUser._id);
+    if (!verify) throw new Error("Verification failed — deleted user not found after save!");
+
+    console.log("✅ Deleted user saved & verified:", verify._id);
+
+    // 🔥 Remove from main users collection
     await this.model.findByIdAndDelete(userId);
+    console.log("🗑️ Original user deleted from main collection:", userId);
 
-    return { message: "User moved to deleted_user collection" };
+    return {
+      success: true,
+      message: "User moved to deleted_user collection successfully",
+      deletedUserId: verify._id
+    };
+  } catch (err) {
+    console.error("❌ Error saving deleted user:", err);
+    throw new Error("Failed to save user in deleted_user collection");
   }
+}
 
-  // Restore deleted user from deleted_user collection
-  async restoreUser(deletedUserId) {
-    const deletedUser = await DeletedUserModel.findById(deletedUserId);
-    if (!deletedUser) throw new Error("Deleted user not found");
 
-    const restoredUser = new this.model({
-      user_name: deletedUser.user_name,
-      mobile_no: deletedUser.mobile_no,
-      empId: deletedUser.empId,
-      email: deletedUser.email,
-      role: deletedUser.role,
-      position: deletedUser.position,
-      designation: deletedUser.designation,
-      department: deletedUser.department,
-      createdby: deletedUser.deletedBy || null,
-      doj: deletedUser.originalCreatedAt || Date.now(),
-      dob: deletedUser.originalCreatedAt || Date.now(),
-    });
+// ✅ Restore deleted user from deleted_user collection
+async restoreUser(deletedUserId) {
+  const deletedUser = await deleteduser_model.findById(deletedUserId);
+  if (!deletedUser) throw new Error("Deleted user not found");
 
-    await restoredUser.save();
+  // Prevent duplicates — check if email or empId already re-exists
+  const existing = await this.model.findOne({
+    $or: [{ email: deletedUser.email }, { empId: deletedUser.empId }],
+  });
+  if (existing) throw new Error("A user with this email or empId already exists");
 
-    // Remove from deleted_user collection
-    await DeletedUserModel.findByIdAndDelete(deletedUserId);
+  // Recreate in main collection
+  const restoredUser = new this.model({
+    user_name: deletedUser.user_name,
+    mobile_no: deletedUser.mobile_no,
+    empId: deletedUser.empId,
+    email: deletedUser.email,
+    role: deletedUser.role,
+    position: deletedUser.position,
+    designation: deletedUser.designation,
+    department: deletedUser.department,
+    createdBy: deletedUser.deletedBy || null,
+    doj: deletedUser.originalCreatedAt || new Date(),
+    dob: deletedUser.backupData?.dob || new Date(),
+    status: true,
+    password: "$2b$10$X4S9yDavmUcG9GvAVjDLn.HhKIM7OBTcRW/jowKPctIRGAqaKqH52",
+    createdby: "6884d238fbb2351b8786d26f"
 
-    return { message: "User restored successfully", data: restoredUser };
-  }
+  });
+
+  await restoredUser.save();
+
+  // Remove from deleted_user collection
+  await deleteduser_model.findByIdAndDelete(deletedUserId);
+
+  return { success: true, message: "User restored successfully", data: restoredUser };
+}
+
 }
 
 module.exports = UserService;

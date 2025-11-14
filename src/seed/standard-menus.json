@@ -5,6 +5,7 @@
     "main": [
       { "menuName": "Dashboard", "children": [{ "submenuName": "Dashboard" }] },
       { "menuName": "Access", "children": [{ "submenuName": "Access" }, { "submenuName": "Access Define" }] },
+      { "menuName": "Access2", "children": [{ "submenuName": "Access2" }, { "submenuName": "Access Define2" }] },
                   
       { "menuName": "User Management", "children": [{ "submenuName": "Add User" }, { "submenuName": "View Users" },{ "submenuName": "ViewEdit Users" }]  },
       { "menuName": "Reports", "children": [{ "submenuName": "Daily Report" }, { "submenuName": "Monthly Report" }] },

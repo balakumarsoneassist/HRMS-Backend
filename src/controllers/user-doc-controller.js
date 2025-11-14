@@ -13,7 +13,7 @@ const UserDocController = express.Router();
 
 console.log("✅ UserDocController loaded");
 
-const routes = new routesUtil(userDocService);
+const routes = new routesUtil(UserDocService);
 
 // --- Multer storage
 const storage = multer.diskStorage({
@@ -231,6 +231,33 @@ UserDocController.post("/upload", upload.any(), async (req, res) => {
   } catch (err) {
     console.error("❌ Upload error:", err);
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ✅ New route: get docs by user_id
+UserDocController.get("/userId/:id", async (req, res) => {
+  try {
+    const userId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Invalid user ID" });
+    }
+
+    const userDocs = await userDocService.model.findOne({ user_id: userId });
+    if (!userDocs) {
+      return res.status(404).json({
+        success: false,
+        message: "No documents found for this user",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "User documents retrieved successfully",
+      data: userDocs,
+    });
+  } catch (err) {
+    console.error("❌ GET /userId/:id error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
