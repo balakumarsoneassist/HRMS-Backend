@@ -131,6 +131,8 @@ UserAttendanceReportController.put("/override/present/:reportId", async (req, re
 /** ---------- MONTHLY PIVOT REPORT (PERSISTED ONLY) ---------- */
 UserAttendanceReportController.get("/pivot/month/:year/:month", async (req, res) => {
   try {
+    console.log("1");
+    
     const decrypted = await requireAuth(req, res);
     if (!decrypted) return;
 
@@ -153,6 +155,8 @@ UserAttendanceReportController.get("/pivot/month/:year/:month", async (req, res)
 /** ---------- MONTHLY PIVOT REPORT (PERSISTED ONLY) ---------- */
 UserAttendanceReportController.get("/pivot/month/:year/:month", async (req, res) => {
   try {
+    console.log("2");
+
     const decrypted = await requireAuth(req, res);
     if (!decrypted) return;
 

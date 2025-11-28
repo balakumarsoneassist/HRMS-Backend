@@ -382,28 +382,52 @@ class UserService extends crud_service {
       return await getVisibleUserIdsFor(actingUserId);
     };
 
-    // per-user balances
+ 
 
-    // Helper: months remaining in the year, inclusive of given date's month
-    function remainingMonthsInYear(date) {
-      const m = (date instanceof Date ? date : new Date(date)).getMonth(); // 0..11
-      return 12 - m; // Aug (7) -> 5 (Aug..Dec)
-    }
+    // Returns how many months remain in the year from the given date's month (inclusive)
+function remainingMonthsInYear(date) {
+  const m = date.getMonth(); // 0–11
+  return 12 - m;
+}
 
-    // Map free-form labels to your enum in LeaveType
-    function normalizeLabel(label) {
-      const key = String(label || "")
-        .toLowerCase()
-        .trim();
-      if (key.includes("sick")) return "Sick Leave";
-      if (key.includes("casual")) return "Casual Leave";
-      if (key.includes("planned")) return "Planned Leave";
-      if (key.includes("maternity")) return "Maternity Leave";
-      if (key.includes("paternity")) return "Paternity Leave";
-      if (key.includes("comp")) return "Compoff Leave"; // compoff / comp-off / compensatory
-      // default to capitalized, but your enum will reject unknowns
-      return label;
-    }
+// Normalize labels safely
+function normalizeLabel(label = "") {
+  return String(label).trim();
+}
+
+// Allowed leave types
+const ALLOWED_LEAVES = [
+  "Sick Leave",
+  "Casual Leave",
+  "Planned Leave",
+  "Maternity Leave",
+  "Paternity Leave",
+  "Compoff Leave"
+];
+
+// Get or create a year bucket
+function getYearBucket(leaveRecord, year) {
+  return (leaveRecord.remaining || []).find(b => b.year === year);
+}
+
+function ensureYearBucket(leaveRecord, year, { accrualType, perMonth = 0, fixedAmount = 0, doj } = {}) {
+  let bucket = getYearBucket(leaveRecord, year);
+  if (bucket) return bucket;
+
+  const months = Array(12).fill(0);
+  if (accrualType === "monthly") {
+    months.fill(perMonth);
+  }
+  else if (accrualType === "fixed" && doj && year === new Date(doj).getFullYear()) {
+    months[new Date(doj).getMonth()] = fixedAmount;
+  }
+
+  bucket = { year, months };
+  leaveRecord.remaining = leaveRecord.remaining || [];
+  leaveRecord.remaining.push(bucket);
+  return bucket;
+}
+
 
     /**
      * Create per-user leave balances from policies, pro-rated by DOJ.
@@ -411,121 +435,108 @@ class UserService extends crud_service {
      * @param {string} userRoleName  e.g. "Employee" | "Intern"
      * @param {Date|string} doj      user's date of joining (required for pro-rating)
      */
-    this.leaveModelCreate = async (userId, userRoleName, doj) => {
-      console.log(userId, userRoleName, doj);
-      const policySvc = new LeavePolicyService();
-      const leaveSvc = new LeaveTypeService();
 
-      // 1) pull active policies (optionally filtered by role)
-      let policies = await policySvc.listActive(userRoleName);
+this.leaveModelCreate = async (userId, userRoleName, doj) => {
+  console.log("Seeding leaves for:", userId, userRoleName, doj);
 
-      // Optional fallback: seed defaults if none are configured.
-      // Remove this block if you want hard failure instead.
-      if (!policies || policies.length === 0) {
-        const defaults = [
-          {
-            label: "Sick Leave",
-            amount: 1,
-            accrualType: "monthly",
-            active: true,
-          },
-          {
-            label: "Casual Leave",
-            amount: 1,
-            accrualType: "monthly",
-            active: true,
-          },
-          {
-            label: "Planned Leave",
-            amount: 7,
-            accrualType: "annual",
-            active: true,
-          },
-          {
-            label: "Compoff Leave",
-            amount: 0,
-            accrualType: "fixed",
-            active: false,
-          },
-          {
-            label: "Maternity Leave",
-            amount: 15,
-            accrualType: "fixed",
-            active: true,
-          },
-          {
-            label: "Paternity Leave",
-            amount: 0,
-            accrualType: "annual",
-            active: true,
-          },
-        ];
-        try {
-          if (typeof policySvc.addMany === "function") {
-            await policySvc.addMany(defaults);
-          } else {
-            await Promise.all(defaults.map((p) => policySvc.add(p)));
-          }
-        } catch (_) {
-          /* ignore duplicates */
-        }
-        policies = await policySvc.listActive(userRoleName);
+  const policySvc = new LeavePolicyService();
+  const leaveSvc = new LeaveTypeService();
+
+  // 1) fetch active policies
+  let policies = await policySvc.listActive(userRoleName);
+
+  // fallback defaults
+  if (!policies || policies.length === 0) {
+    const defaults = [
+      { label: "Sick Leave", amount: 1, accrualType: "monthly", active: true },
+      { label: "Casual Leave", amount: 1, accrualType: "monthly", active: true },
+      { label: "Planned Leave", amount: 7, accrualType: "annual", active: true },
+      { label: "Maternity Leave", amount: 15, accrualType: "fixed", active: true },
+      { label: "Paternity Leave", amount: 5, accrualType: "annual", active: true },
+      { label: "Compoff Leave", amount: 3, accrualType: "fixed", active: true },
+    ];
+
+    try {
+      if (typeof policySvc.addMany === "function") {
+        await policySvc.addMany(defaults);
+      } else await Promise.all(defaults.map(p => policySvc.add(p)));
+    } catch (_) { /* ignore duplicates */ }
+
+    policies = await policySvc.listActive(userRoleName);
+  }
+
+  const from = doj ? new Date(doj) : new Date();
+  const joinYear = from.getFullYear();
+  const remMonths = remainingMonthsInYear(from);
+  const currentYear = new Date().getFullYear();
+
+  for (const p of policies) {
+    if (!p.active) continue;
+
+    const label = normalizeLabel(p.label);
+    if (!ALLOWED_LEAVES.includes(label)) continue;
+
+    const accrualType = String(p.accrualType || "").toLowerCase().trim();
+    const amt = Number(p.amount ?? p.value ?? 0);
+
+    let leaveDoc = await leaveSvc.retrieve({ userId, label });
+
+    if (!leaveDoc) {
+      let initial = 0;
+      const months = Array(12).fill(0);
+
+      if (accrualType === "monthly") {
+        initial = amt;
+        months.fill(amt);
+      } else if (accrualType === "annual") {
+        initial = Math.floor((amt * remMonths) / 12);
+        const perMonth = remMonths > 0 ? Math.floor(initial / remMonths) : 0;
+        for (let i = 12 - remMonths; i < 12; i++) months[i] = perMonth;
+        months[11] += initial - (perMonth * remMonths);
+      } else if (accrualType === "fixed") {
+        initial = amt;
+        months[from.getMonth()] = amt;
       }
 
-      // if (!policies || policies.length === 0) {
-      //   const err = new Error("Leave policies are not configured by Super Admin.");
-      //   err.code = "NO_LEAVE_POLICIES";
-      //   throw err;
-      // }
+      initial = Math.max(0, Math.floor(initial));
 
-      // 2) compute starting balances based on DOJ
-      const start = doj ? new Date(doj) : new Date();
-      const rem = remainingMonthsInYear(start);
+      leaveDoc = await leaveSvc.add({
+        userId,
+        label,
+        value: initial,
+        accrualType,
+        doj: from,
+        remaining: [{
+          year: joinYear,
+          months,
+          annualValue: accrualType === "annual" ? amt : undefined
+        }]
+      });
+    }
+    console.log(leaveDoc);
+    leaveDoc =  leaveDoc.data
+    if (!getYearBucket(leaveDoc, currentYear)) {
+      console.log("🔁 Initializing new leave bucket for year:", currentYear);
 
-      const payloads = [];
-      for (const p of policies) {
-        if (p.active === false) continue;
+      const perMonth = accrualType === "monthly" ? amt : 0;
+      ensureYearBucket(leaveDoc, currentYear, { accrualType, perMonth, fixedAmount: amt, doj: leaveDoc.doj });
 
-        const label = normalizeLabel(p.label);
-        let initial = 0;
-        const amt = Number(p.amount ?? p.value ?? 0);
-        const accrual = String(p.accrualType || "").toLowerCase();
-
-        if (accrual === "monthly") {
-          // e.g., Sick/Casual: 1 per month; start with the current month’s quota
-          initial = amt; // you'll enforce monthly cap at request time
-        } else if (accrual === "annual") {
-          // e.g., Planned 7 per year -> pro-rate for remaining months (inclusive)
-          initial = Math.floor((amt * rem) / 12);
-        } else {
-          // fixed one-time bucket (e.g., Maternity 15)
-          initial = amt;
-        }
-
-        // store as whole non-negative days
-        initial = Math.max(0, Math.floor(initial));
-
-        // Respect your enum: skip unknowns (or throw if you prefer)
-        const allowed = [
-          "Sick Leave",
-          "Casual Leave",
-          "Planned Leave",
-          "Maternity Leave",
-          "Paternity Leave",
-          "Compoff Leave",
-        ];
-        if (!allowed.includes(label)) continue;
-
-        payloads.push({ userId, label, value: initial });
+      if (accrualType === "annual") {
+        const bucket = getYearBucket(leaveDoc, currentYear);
+        bucket.annualValue = amt;
       }
 
-      // 3) write per-user balances
-      if (payloads.length === 0) return [];
-      if (typeof leaveSvc.addMany === "function") {
-        return await leaveSvc.addMany(payloads);
-      }
-      return await Promise.all(payloads.map((x) => leaveSvc.add(x)));
-    };
+      await leaveSvc.add({
+  ...leaveDoc, // spread existing fields
+  remaining: leaveDoc.remaining, // updated buckets
+});
+    }
+  }
+
+  return await leaveSvc.retrieve({ userId });
+};
+
+
 
     this.leaveAvailable = async (id, type) => {
       let service = new leaveType_service();
