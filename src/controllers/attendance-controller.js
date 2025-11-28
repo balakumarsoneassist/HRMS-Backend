@@ -6,9 +6,16 @@ const user_service = require("../services/user-service");
 const { getVisibleUserIdsFor } = require("../services/visibility.service");
 const routesUtil = require("../utils/routes");
 const holiday_service = require("../services/holiday-service");
+const LeaveTypeService = require("../services/leaveType-service");
 
 const AttendanceController = express.Router();
 let routes = new routesUtil(atd_service);
+
+
+// helper: normalize label safely
+function normalizeLabel(label) {
+  return (label || "").trim();
+}
 
 async function requireAuth(req, res) {
   const authHeader = req.headers.authorization;
@@ -150,96 +157,161 @@ AttendanceController.get("/", routes.listForTable)
     }
   })
 
-  .post("/leaverequest", async (req, res) => {
-    try {
-      // ✅ auth
-      const decrypted = await requireAuth(req, res);
-      if (!decrypted) return;
+.post("/leaverequest", async (req, res) => {
+  try {
+    // AUTH
+    const decrypted = await requireAuth(req, res);
+    if (!decrypted) return;
 
-      // ✅ date parsing
-      const [fd, fm, fy] = req.body.fromDate.split("/");
-      req.body.fromDate = new Date(`${fy}-${fm}-${fd}T00:00:00Z`);
-      const to = req.body.toDate
-        ? (() => {
-            const [td, tm, ty] = req.body.toDate.split("/");
-            return new Date(`${ty}-${tm}-${td}T00:00:00Z`);
-          })()
-        : req.body.fromDate;
+    // Parse dates
+    const [fd, fm, fy] = req.body.fromDate.split("/");
+    const fromDate = new Date(`${fy}-${fm}-${fd}T00:00:00Z`);
 
-      // ✅ leave availability
-      const userservice = new user_service();
-      const leavesAvailable = await userservice.leaveAvailable(
-        decrypted.id,
-        req.body.attendanceType
-      );
+    const toDate = req.body.toDate
+      ? (() => {
+          const [td, tm, ty] = req.body.toDate.split("/");
+          return new Date(`${ty}-${tm}-${td}T00:00:00Z`);
+        })()
+      : fromDate;
 
-      const requestedDays = Math.ceil((to - req.body.fromDate) / 86400000) + 1;
-      if (leavesAvailable) {
-        if (requestedDays > leavesAvailable.value) {
-          return res.json({
-            success: false,
-            message: "Insufficient leave balance",
-          });
-        }
-      } else if (!isNaN(leavesAvailable)) {
-        return res.json({
-          success: false,
-          message: "This type of leave is not available for you",
-        });
-      }
+    const attendanceType = normalizeLabel(req.body.attendanceType);
+    const requestedDays = Math.ceil((toDate - fromDate) / 86400000) + 1;
 
-      const service = new atd_service();
-      const leaveEntries = [];
+    const requestYear = fromDate.getUTCFullYear();
+    const requestMonth = fromDate.getMonth();
 
-      // one record per day
-      const d = new Date(req.body.fromDate);
-      while (d <= to) {
-        const dayStart = new Date(d);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(d);
-        dayEnd.setHours(23, 59, 59, 999);
+    // Fetch leave record using service
+    const leaveSvc = new LeaveTypeService();
+    const leaveRecord = await leaveSvc.retrieve({
+      userId: decrypted.id,
+      label: attendanceType
+    });
 
-        const exists = await service.retrieve({
-          userId: decrypted.id,
-          date: { $gte: dayStart, $lte: dayEnd },
-        });
-        if (!exists) {
-          const body = {
-            userId: decrypted.id,
-            date: new Date(d),
-            attendanceType: req.body.attendanceType,
-            reasonForApplying: req.body.reasonForApplying,
-          };
-          const result = await service.add(body);
-          const orgservice = new atd_org_service();
-          const results = await orgservice.add(body);
-          leaveEntries.push(result);
-        }
-        d.setDate(d.getDate() + 1);
-      }
-
-      await userservice.leaveSub(
-        decrypted.id,
-        req.body.attendanceType,
-        leavesAvailable.value - requestedDays
-      );
-
-      if (leaveEntries.length) {
-        return res.json({
-          success: true,
-          message: "Leave(s) applied successfully",
-          data: leaveEntries,
-        });
-      }
+    if (!leaveRecord) {
       return res.json({
         success: false,
-        message: "Leave already marked for given dates",
+        message: "Leave record not found for this type"
       });
-    } catch (error) {
-      console.error("leaverequest error:", error);
-      res.status(500).json({ success: false, message: "Server error" });
     }
-  })
+
+    const accrualType = (leaveRecord.accrualType || "").toLowerCase().trim();
+    const joiningMonth = leaveRecord.doj ? new Date(leaveRecord.doj).getMonth() : requestMonth;
+
+    // Find bucket for the year
+    let yearBucket = (leaveRecord.remaining || []).find(b => b.year === requestYear);
+
+    if (!yearBucket) {
+      return res.json({
+        success: false,
+        message: `No leave bucket found for year ${requestYear}`
+      });
+    }
+
+    // BALANCE CHECK
+    if (accrualType === "monthly") {
+      const bal = yearBucket.months[requestMonth] ?? 0;
+      if (requestedDays > bal) {
+        return res.json({ success: false, message: "Insufficient monthly leave balance" });
+      }
+    }
+
+    else if (accrualType === "fixed") {
+      const fixedBal = yearBucket.months[joiningMonth] ?? 0;
+      if (requestedDays > fixedBal) {
+        return res.json({ success: false, message: "Insufficient fixed leave balance" });
+      }
+    }
+
+    else if (accrualType === "annual") {
+      const avail = yearBucket.annualValue ?? leaveRecord.value ?? 0;
+      if (requestedDays > avail) {
+        return res.json({ success: false, message: "Insufficient annual leave balance" });
+      }
+    }
+
+    // ADD ATTENDANCE ENTRIES
+    const atdService = new atd_service();
+    const orgAtdService = new atd_org_service();
+    const leaveEntries = [];
+
+    let d = new Date(fromDate);
+    while (d <= toDate) {
+      const ds = new Date(d);
+      const start = new Date(ds.setUTCHours(0,0,0,0));
+      const end = new Date(ds.setUTCHours(23,59,59,999));
+
+      const exists = await atdService.retrieve({
+        userId: decrypted.id,
+        date: { $gte: start, $lte: end }
+      });
+
+      if (!exists) {
+        const payload = {
+          userId: decrypted.id,
+          date: new Date(d),
+          attendanceType,
+          reasonForApplying: req.body.reasonForApplying,
+        };
+
+        const rec = await atdService.add(payload);
+        await orgAtdService.add(payload);
+        leaveEntries.push(rec);
+      }
+      d.setDate(d.getDate() + 1);
+    }
+
+    if (leaveEntries.length === 0) {
+      return res.json({ success: false, message: "Leave already applied earlier" });
+    }
+
+    // DEDUCT BALANCE
+    if (accrualType === "monthly") {
+      yearBucket.months[requestMonth] -= requestedDays;
+      leaveRecord.value -= requestedDays;
+    }
+
+    else if (accrualType === "fixed") {
+      yearBucket.months[joiningMonth] -= requestedDays;
+      leaveRecord.value -= requestedDays;
+    }
+
+    else if (accrualType === "annual") {
+      yearBucket.annualValue -= requestedDays;
+      leaveRecord.value -= requestedDays;
+    }
+
+    // REPLACE UPDATED BUCKET
+    leaveRecord.remaining = leaveRecord.remaining.map(b =>
+      b.year === requestYear ? yearBucket : b
+    );
+   console.log(leaveRecord._id, leaveRecord.remaining[0].months[10]);
+   
+    // SAVE CHANGES using service update
+  let rss=   await leaveSvc.update(leaveRecord,leaveRecord._id);
+   console.log(rss);
+
+    // SUCCESS
+    return res.json({
+      success: true,
+      message: "Leave applied successfully",
+      data: leaveEntries,
+      updatedBalance: {
+        year: requestYear,
+        remaining: yearBucket.months,
+        annualValue: yearBucket.annualValue,
+        totalValue: leaveRecord.value
+      }
+    });
+
+  } catch (err) {
+    console.error("leaverequest error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+})
+
+
+
+
 
   .get("/all", async (_req, res) => {
     try {
@@ -287,38 +359,107 @@ AttendanceController.get("/", routes.listForTable)
 })
 
 
-  .put("/approval/:id", async (req, res) => {
-    try {
-      const decrypted = await requireAuth(req, res);
-      if (!decrypted) return;
+.put("/approval/:id", async (req, res) => {
+  try {
+    const decrypted = await requireAuth(req, res);
+    if (!decrypted) return;
 
-      const userservice = new user_service();
-      const user = await userservice.retrieve({ _id: decrypted.id });
+    const userservice = new user_service();
+    const approver = await userservice.retrieve({ _id: decrypted.id });
 
-      const body = {
-        approved: req.body.approved,
-        remarks: `By ${user.user_name}`,
-      };
+    const atdService = new atd_service();
+    const orgService = new atd_org_service();
 
-      const service = new atd_service();
-      const details = await service.retrieve({ _id: req.params.id })
-      console.log(details);
-      if(!req.body.approved){
-        const leavecal = await userservice.leaveAdd(
-        details.userId,
-        details.attendanceType,
-        1
-      );
-      }
-       const result = await service.update(body, { _id: req.params.id });
-      const orgservice = new atd_org_service();
-      const results = await orgservice.update(body, { _id: req.params.id });
-      res.json(details);
-    } catch (e) {
-      console.error("PUT /approval/:id error:", e);
-      res.status(500).json({ message: "Server error" });
+    // get attendance entry
+    const details = await atdService.retrieve({ _id: req.params.id });
+    if (!details) {
+      return res.status(404).json({ message: "Attendance record not found" });
     }
-  })
+
+    const isApprove = req.body.approved === true;
+
+    // COMMON update body
+    const body = {
+      approved: isApprove,
+      remarks: `By ${approver.user_name}`,
+    };
+
+    // ----------------------------------------
+    //  IF REJECTED → RETURN LEAVE BACK
+    // ----------------------------------------
+    if (!isApprove) {
+      const leaveType = normalizeLabel(details.attendanceType);
+      const leaveSvc = new LeaveTypeService();
+
+      // find leave record for user + type
+      const leaveRecord = await leaveSvc.retrieve({
+        userId: details.userId,
+        label: leaveType
+      });
+
+      if (leaveRecord) {
+        const requestDate = new Date(details.date);
+        const requestYear = requestDate.getFullYear();
+        const requestMonth = requestDate.getMonth();
+
+        // locate bucket
+        let yearBucket = (leaveRecord.remaining || []).find(b => b.year === requestYear);
+        if (!yearBucket) {
+          return res.json({
+            success: false,
+            message: `Year bucket not found for ${requestYear}`
+          });
+        }
+
+        const accrualType = (leaveRecord.accrualType || "").toLowerCase().trim();
+
+        // 1 DAY must be returned
+        const returnDays = 1;
+
+        // Restore based on accrualType
+        if (accrualType === "monthly") {
+          yearBucket.months[requestMonth] += returnDays;
+          leaveRecord.value += returnDays;
+        }
+        else if (accrualType === "fixed") {
+          const dojMonth = leaveRecord.doj ? new Date(leaveRecord.doj).getMonth() : requestMonth;
+          yearBucket.months[dojMonth] += returnDays;
+          leaveRecord.value += returnDays;
+        }
+        else if (accrualType === "annual") {
+          yearBucket.annualValue += returnDays;
+          leaveRecord.value += returnDays;
+        }
+
+        // update buckets
+        leaveRecord.remaining = leaveRecord.remaining.map(b =>
+          b.year === requestYear ? yearBucket : b
+        );
+
+        // save updated leave record
+        await leaveSvc.update( leaveRecord,leaveRecord._id);
+      }
+    }
+
+    // ----------------------------------------
+    // UPDATE ATTENDANCE RECORD
+    // ----------------------------------------
+    await atdService.update(body, { _id: req.params.id });
+    await orgService.update(body, { _id: req.params.id });
+
+    return res.json({
+      success: true,
+      status: isApprove ? "approved" : "rejected",
+      restored: !isApprove ? 1 : 0,
+      data: details
+    });
+
+  } catch (e) {
+    console.error("PUT /approval/:id error:", e);
+    res.status(500).json({ message: "Server error" });
+  }
+})
+
 
   .get("/allmyattendance", async (req, res) => {
     try {
