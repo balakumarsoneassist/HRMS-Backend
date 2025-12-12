@@ -48,7 +48,8 @@
         "menuName": "Certificate",
         "children": [
           { "submenuName": "Letters of Appointment" },
-           { "submenuName": "Payslip" }
+           { "submenuName": "Payslip" },
+           {"submenuName": "Id-card"}
         ]
       },
       { "menuName": "Attendance", "children": [{ "submenuName": "Leave Request" }, { "submenuName": "Attendance" }] },
@@ -70,7 +71,8 @@
         "menuName": "Certificate",
         "children": [
           { "submenuName": "Letters of Appointment" },
-           { "submenuName": "Payslip" }
+           { "submenuName": "Payslip" },
+           {"submenuName": "Id-card"}
         ]
       },
     {
@@ -110,7 +112,8 @@
         "menuName": "Certificate",
         "children": [
           { "submenuName": "Letters of Appointment" },
-           { "submenuName": "Payslip" }
+           { "submenuName": "Payslip" },
+           {"submenuName": "Id-card"}
 
         ]
       },

@@ -6,7 +6,7 @@ const payload_service = require("../services/payload-service");
 const routesUtil = require("../utils/routes");
 const UserAttendanceReportService = require("../services/user-attendance-report-service");
 const HolidayService = require("../services/holiday-service");
-
+const creditPetrolService = require("../services/creditPetrol-service")
 const PayloadController = express.Router();
 let routes = new routesUtil(payload_service);
 
@@ -88,13 +88,14 @@ function expandHolidayDates(holidays, year, month) {
 }
 
 /* ------------------- Salary Calculation (attendance-aware) ------------------- */
+/* ------------------- Salary Calculation (attendance-aware) ------------------- */
 async function calculateMonthlySalary(userId, year, month) {
   const services = new payload_service();
   const payload = await services.model.findOne({ user_id: userId });
 
   if (!payload) throw new Error("No salary payload found for this user.");
 
-  // CTC (Monthly)
+  // Monthly CTC
   const monthlyCTC = Number(payload.ctc || 0);
   if (!monthlyCTC || isNaN(monthlyCTC)) throw new Error("Invalid monthly CTC");
 
@@ -127,26 +128,26 @@ async function calculateMonthlySalary(userId, year, month) {
   );
 
   // Extract employee record from pivot
-  const pivotUsers = Object.values(pivotResult.users);
-  const employee = pivotUsers[0] || {};  // since this API fetches only one user's data
+  const pivotUsers = Object.values(pivotResult.users || {});
+  const employee = pivotUsers[0] || {};  // this API fetches only one user's data
   const empId = employee.empId || "Unknown";
   const username = employee.user_name || "Employee";
 
   const totalStr = employee._totals || "0/0";
   const [presentDaysStr] = totalStr.split("/");
-  const presentDays = parseInt(presentDaysStr || 0);
+  const presentDays = parseInt(presentDaysStr || 0, 10);
 
-  // ✅ Calculate Pay
+  // ✅ Attendance-based ratio
   const perDay = workingDays > 0 ? +(monthlyCTC / workingDays).toFixed(2) : 0;
   const ratio = workingDays > 0 ? (presentDays / workingDays) : 0;
 
   return {
     userId,
-    empId,           // 👈 added
+    empId,
     username,
     payload,
-    year,
-    month,
+    year: Number(year),
+    month: Number(month),
     monthlyCTC,
     workingDays,
     presentDays,
@@ -156,161 +157,373 @@ async function calculateMonthlySalary(userId, year, month) {
 }
 
 
+
 /* ------------------- Generate Salary PDF (dynamic like your image) ------------------- */
+/* ------------------- Generate Salary PDF (Govt norms + your payslip format) ------------------- */
 PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
   try {
     const { userId, year, month } = req.params;
-    const result = await calculateMonthlySalary(userId, year, month);
-    const { payload, monthlyCTC, ratio } = result;
 
-    // Base for percent: monthly CTC
-    const base = monthlyCTC;
+    const creditPetrol_Service = new creditPetrolService();
 
-    // Safely compute percent-of-base; support {enabled, percent} OR numeric
-    const pctAmount = (field, customBase = base) => {
-      if (!field) return 0;
-      if (typeof field === "number") return field;
-      if (typeof field === "object" && field.enabled) {
-        const p = Number(field.percent || 0);
-        return +((customBase * p) / 100).toFixed(2);
+    // Parse numbers
+    const ye = Number(year);
+    const m = Number(month) - 1;  // convert to 0–11 month index
+
+    if (isNaN(ye) || isNaN(m) || m < 0 || m > 11) {
+      return res.status(400).json({ message: "Invalid year or month" });
+    }
+
+    // Build month range
+    const startOfMonth = new Date(ye, m, 1, 0, 0, 0);
+    const endOfMonth = new Date(ye, m + 1, 0, 23, 59, 59);
+
+    // Fetch reimbursement entries (Petrol/Travel)
+    const reimbursementTravel = await creditPetrol_Service.retrieveAll({
+      userId,
+      updatedAt: {
+        $gte: startOfMonth,
+        $lte: endOfMonth
       }
-      return 0;
-    };
+    });
 
-    // Monthly (un-prorated) components
-    const basicMonthly =
-      typeof payload.basic_salary === "number"
-        ? Number(payload.basic_salary)
-        : pctAmount(payload.basic || payload.basicPercent); // support either shape
+    // Sum of reimbursement "amount"
+    const totalAmount = reimbursementTravel.reduce((sum, item) => {
+      return sum + Number(item.amount || 0);
+    }, 0);
 
-    const hraMonthly         = pctAmount(payload.hra);
-    const convMonthly        = pctAmount(payload.conveyance);
-    const medicalMonthly     = pctAmount(payload.medical);
-    const specialMonthly     = pctAmount(payload.special);
+    // ✅ Get salary + attendance context
+    const result = await calculateMonthlySalary(userId, year, month);
+    const { payload, monthlyCTC, ratio, username, empId, workingDays, presentDays } = result;
 
-    const pfMonthly          = pctAmount(payload.pf, basicMonthly || base); // often based on Basic
-    const healthInsMonthly   = pctAmount(payload.health_insurance);
-    const ptMonthly          = pctAmount(payload.prof_tax);
-    const tdsMonthly         = pctAmount(payload.tds);
+    // ------------- Helper: build effective allowance % (Basic >= 40% of Gross) -------------
+    const allowanceKeys = ["basic", "hra", "da", "ta", "conveyance", "medical", "special"];
 
-    // Apply attendance proration: amount * ratio
+    const effectivePercent = {};
+    const enabledKeys = allowanceKeys.filter(
+      (k) => payload[k] && payload[k].enabled
+    );
+
+    // If nothing enabled, we can't build a structure
+    if (enabledKeys.length === 0) {
+      throw new Error("No allowances enabled for this payload.");
+    }
+
+    // Input Basic percent (0 if missing)
+    let basicInput =
+      payload.basic && payload.basic.enabled ? Number(payload.basic.percent || 0) : 0;
+
+    // If Basic not enabled or set, force 40% as per govt style
+    if (!payload.basic || !payload.basic.enabled || basicInput <= 0) {
+      basicInput = 40;
+    }
+
+    // Other allowances (that are enabled and not Basic)
+    const otherKeys = enabledKeys.filter((k) => k !== "basic");
+    const sumOthersInput = otherKeys.reduce((sum, k) => {
+      const p = payload[k] ? Number(payload[k].percent || 0) : 0;
+      return sum + p;
+    }, 0);
+
+    if (sumOthersInput <= 0) {
+      // Only Basic effectively => Basic 100%
+      effectivePercent["basic"] = 100;
+      otherKeys.forEach((k) => (effectivePercent[k] = 0));
+    } else if (basicInput >= 40) {
+      // Already compliant: keep user distribution
+      effectivePercent["basic"] = basicInput;
+      otherKeys.forEach((k) => {
+        const p = payload[k] ? Number(payload[k].percent || 0) : 0;
+        effectivePercent[k] = p;
+      });
+    } else {
+      // Basic < 40 => bump to 40 and scale others into remaining 60
+      effectivePercent["basic"] = 40;
+      const remaining = 60;
+      otherKeys.forEach((k) => {
+        const orig = payload[k] ? Number(payload[k].percent || 0) : 0;
+        effectivePercent[k] = sumOthersInput > 0
+          ? (orig / sumOthersInput) * remaining
+          : 0;
+      });
+    }
+
+    // Any non-enabled allowance => 0 effective percent
+    allowanceKeys.forEach((k) => {
+      if (!effectivePercent.hasOwnProperty(k)) {
+        effectivePercent[k] = 0;
+      }
+    });
+
+    // ------------- Step 2: Solve Gross from: CTC = Gross + Employer PF + Employer ESIC -------------
+    let gross = monthlyCTC;
+    let prevGross = 0;
+    let employerPfFull = 0;
+    let employerEsicFull = 0;
+
+    const maxIterations = 50;
+    let it = 0;
+
+    while (Math.abs(gross - prevGross) > 1 && it < maxIterations) {
+      it++;
+      prevGross = gross;
+
+      const basicFromGross = gross * (effectivePercent["basic"] || 0) / 100;
+
+      // Employer PF (same as employee formula but from CTC)
+      if (payload.pf && payload.pf.enabled) {
+        employerPfFull = basicFromGross > 15000 ? 1800 : basicFromGross * 0.12;
+      } else {
+        employerPfFull = 0;
+      }
+
+      // Employer ESIC (3.25% of Gross if enabled & < 21000)
+      if (payload.esicEmployer && payload.esicEmployer.enabled && gross < 21000) {
+        employerEsicFull = gross * 0.0325;
+      } else {
+        employerEsicFull = 0;
+      }
+
+      const newGross = monthlyCTC - (employerPfFull + employerEsicFull);
+      gross = newGross;
+    }
+
+    if (gross < 0) gross = 0;
+
+    // ------------- Step 3: Allowances based on Gross & effective % -------------
+    const basicMonthly = gross * (effectivePercent["basic"] || 0) / 100;
+    const hraMonthly = gross * (effectivePercent["hra"] || 0) / 100;
+    const conveyMonthly = gross * (effectivePercent["conveyance"] || 0) / 100;
+    const medicalMonthly = gross * (effectivePercent["medical"] || 0) / 100;
+
+    // Other allowance = Special + DA + TA (per your instruction)
+    const daMonthly = gross * (effectivePercent["da"] || 0) / 100;
+    const taMonthly = gross * (effectivePercent["ta"] || 0) / 100;
+    const specialMonthly = gross * (effectivePercent["special"] || 0) / 100;
+    const otherAllowanceMonthly = daMonthly + taMonthly + specialMonthly;
+
+    // ------------- Step 4: Statutory contributions (full month) -------------
+    // Employee PF (12% of Basic, capped at 1800)
+    let employeePfFull = 0;
+    if (payload.pf && payload.pf.enabled) {
+      employeePfFull = basicMonthly > 15000 ? 1800 : basicMonthly * 0.12;
+    }
+
+    // Employee ESIC (0.75% of Gross if < 21000)
+    let employeeEsicFull = 0;
+    if (payload.esicEmployee && payload.esicEmployee.enabled && gross < 21000) {
+      employeeEsicFull = gross * 0.0075;
+    }
+
+    // PT & TDS – percentage of CTC (company-defined)
+    let ptFull = 0, tdsFull = 0;
+    if (payload.pt && payload.pt.enabled) {
+      ptFull = monthlyCTC * (Number(payload.pt.percent || 0) / 100);
+    }
+    if (payload.tds && payload.tds.enabled) {
+      tdsFull = monthlyCTC * (Number(payload.tds.percent || 0) / 100);
+    }
+
+    // Employer PF/ESIC already computed via iteration: employerPfFull, employerEsicFull
+
+    // ------------- Step 5: Attendance proration (actual payable) -------------
     const prorate = (amt) => +(amt * ratio).toFixed(2);
 
-    const earnings = [];
-    if (basicMonthly > 0)     earnings.push(["Basic Salary", prorate(basicMonthly)]);
-    if (hraMonthly > 0)       earnings.push(["House Rent Allowances", prorate(hraMonthly)]);
-    if (convMonthly > 0)      earnings.push(["Conveyance Allowances", prorate(convMonthly)]);
-    if (medicalMonthly > 0)   earnings.push(["Medical Allowances", prorate(medicalMonthly)]);
-    if (specialMonthly > 0)   earnings.push(["Special Allowances", prorate(specialMonthly)]);
+    const basicPay = prorate(basicMonthly);
+    const hraPay = prorate(hraMonthly);
+    const conveyPay = prorate(conveyMonthly);
+    const medicalPay = prorate(medicalMonthly);
+    const otherPay = prorate(otherAllowanceMonthly);
 
-    const gross = +(earnings.reduce((s, e) => s + e[1], 0).toFixed(2));
+    // Gross (actual earnings) = sum of prorated allowances
+    const grossPay = +(basicPay + hraPay + conveyPay + medicalPay + otherPay).toFixed(2);
+
+    const employeePfPay = prorate(employeePfFull);
+    const employeeEsicPay = prorate(employeeEsicFull);
+    const ptPay = prorate(ptFull);
+    const tdsPay = prorate(tdsFull);
+
+    const employerPfPay = prorate(employerPfFull);
+    const employerEsicPay = prorate(employerEsicFull);
+
+    const totalEmployeeDeductionsPay = +(
+      employeePfPay + employeeEsicPay + ptPay + tdsPay
+    ).toFixed(2);
+
+    // Net salary = Gross + Reimbursement − employee deductions
+    const netPay = +(
+      grossPay + totalAmount - totalEmployeeDeductionsPay
+    ).toFixed(2);
+
+    // ------------- Step 6: Build Earnings & Deductions arrays (for PDF) -------------
+    const earnings = [];
+
+    if (basicPay > 0) earnings.push(["Basic", basicPay]);
+    if (hraPay > 0) earnings.push(["HRA", hraPay]);
+    if (conveyPay > 0) earnings.push(["Conveyance Allowance", conveyPay]);
+    if (medicalPay > 0) earnings.push(["Medical", medicalPay]);
+    if (otherPay > 0) earnings.push(["Other Allowance", otherPay]);
+
+    // Gross row (sum of above)
+    earnings.push(["Gross", grossPay]);
+
+    // Performance Allowance / Other Payment = Petrol/Travel reimbursement (non-prorated)
+    earnings.push(["Performance Allowance / Other Payment", totalAmount]);
+
+    // Less : Loss of Pay (you can plug real LOP if you want; 0 for now)
+    earnings.push(["Less : Loss of Pay", 0]);
+
+    // CTC (configured monthly)
+    earnings.push(["CTC", monthlyCTC]);
+
+    // Net Salary Payable
+    earnings.push(["Net Salary Payable", netPay]);
 
     const deductions = [];
-    if (pfMonthly > 0)        deductions.push(["EPF", prorate(pfMonthly)]);
-    if (healthInsMonthly > 0) deductions.push(["Health Insurance", prorate(healthInsMonthly)]);
-    if (ptMonthly > 0)        deductions.push(["Professional Tax", prorate(ptMonthly)]);
-    if (tdsMonthly > 0)       deductions.push(["TDS", prorate(tdsMonthly)]);
 
-    const totalDeductions = +(deductions.reduce((s, d) => s + d[1], 0).toFixed(2));
-    const netPay = +(gross - totalDeductions).toFixed(2);
+    // Employer-side (info – from CTC)
+    if (employerPfPay > 0) {
+      deductions.push(["Provident Fund (Employer)", employerPfPay]);
+    }
+    if (employerEsicPay > 0) {
+      deductions.push(["Employer ESIC Contribution", employerEsicPay]);
+    }
 
-    // Ensure uploads dir
+    // Employee-side (affects net)
+    if (employeePfPay > 0) {
+      deductions.push(["Provident Fund (Employee)", employeePfPay]);
+    }
+    if (employeeEsicPay > 0) {
+      deductions.push(["Employee ESIC Contribution", employeeEsicPay]);
+    }
+    if (ptPay > 0) {
+      deductions.push(["Professional Tax (PT)", ptPay]);
+    }
+    if (tdsPay > 0) {
+      deductions.push(["Income Tax (TDS)", tdsPay]);
+    }
+
+    const totalDeductions = +(totalEmployeeDeductionsPay).toFixed(2);
+
+    // ------------- Step 7: Build PDF -------------
     const uploadsDir = path.join(__dirname, "../../uploads");
     if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
     const monthName = new Date(Number(year), Number(month) - 1, 1)
       .toLocaleString("en-US", { month: "long" });
-    const pdfPath = path.join(uploadsDir, `payslip_${result.username}_${year}_${month}.pdf`);
+
+    const pdfPath = path.join(
+      uploadsDir,
+      `payslip_${username}_${year}_${month}.pdf`
+    );
+
     const doc = new PDFDocument({ margin: 40 });
     const stream = fs.createWriteStream(pdfPath);
     doc.pipe(stream);
 
-    // ---------- Layout constants ----------
     const leftX = 60;
     const midX = 300;
     const rightX = 540;
-    const tableStartY = 200;
+    const tableStartY = 220;
     const money = (n) =>
-      Number(n).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+      Number(n).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
 
     // ---------- Header ----------
-    doc.fontSize(14).font("Helvetica-Bold").text("OneAssist Technologies LLP", { align: "center" });
+    doc.fontSize(14).font("Helvetica-Bold").text("Company Name", { align: "center" });
     doc.moveDown(0.2);
-    doc.fontSize(12).font("Helvetica-Bold").text(`Salary Slip for ${monthName} ${year}`, { align: "center" });
+    doc.fontSize(10).font("Helvetica").text("Company Address Line 1", { align: "center" });
+    doc.text("Company Address Line 2", { align: "center" });
+    doc.moveDown(0.5);
+    doc.fontSize(12).font("Helvetica-Bold").text(`Salary For the Month of ${monthName} ${year}`, { align: "center" });
     doc.moveDown(1.0);
 
-    // ---------- Employee Box ----------
-    doc.rect(50, 100, 500, 100).stroke();
+    // ---------- Employee Details Box ----------
+    doc.rect(50, 100, 500, 90).stroke();
     doc.font("Helvetica").fontSize(10);
-    doc.text("Name", leftX, 120);
-    doc.text("Department", midX, 120);
-    doc.text("Emp. No", leftX, 140);
-    doc.text("Bank Name", midX, 140);
-    doc.text("Designation", leftX, 160);
-    doc.text("A/c No.", midX, 160);
 
-    doc.text(result.username || "Employee", leftX + 80, 120);
-    doc.text(payload.department || "IT", midX + 80, 120);
-    doc.text(result.empId, leftX + 80, 140);
-    doc.text(payload.bank_name || "HDFC Bank", midX + 80, 140);
-    doc.text(payload.designation || "Software Developer", leftX + 80, 160);
-    doc.text(payload.account_no || "XXXXXX1234", midX + 80, 160);
+    doc.text("Employee's Name :", leftX, 110);
+    doc.text("Designation :", leftX, 125);
+    doc.text("Date of Joining :", leftX, 140);
+
+    doc.text("Employee ID No :", midX, 110);
+    doc.text("No. of Working Days :", midX, 125);
+    doc.text("Days Present :", midX, 140);
+
+    doc.font("Helvetica-Bold");
+    doc.text(username || "Employee", leftX + 120, 110);
+    doc.text(payload.designation || "Software Developer", leftX + 120, 125);
+    doc.text(payload.date_of_joining || "", leftX + 120, 140);
+
+    doc.text(empId || "-", midX + 130, 110);
+    doc.text(`${workingDays} Days`, midX + 130, 125);
+    doc.text(`${presentDays} Days`, midX + 130, 140);
 
     // ---------- Earnings / Deductions Table ----------
     let y = tableStartY;
-    doc.rect(50, y, 500, 150).stroke();
-    doc.moveTo(300, y).lineTo(300, y + 150).stroke();
+    const tableHeight = 210; // a bit taller to fit all rows
+    doc.rect(50, y, 500, tableHeight).stroke();
+    doc.moveTo(300, y).lineTo(300, y + tableHeight).stroke();
 
     doc.font("Helvetica-Bold").fontSize(11);
-    doc.text("Earnings", leftX, y + 5);
-    doc.text("Deductions", midX + 10, y + 5);
+    doc.text("Earning (in Rs. Ps.)", leftX, y + 5);
+    doc.text("Deduction (in Rs. Ps.)", midX + 10, y + 5);
 
-    doc.moveTo(50, y + 20).lineTo(550, y + 20).stroke();
+    doc.moveTo(50, y + 22).lineTo(550, y + 22).stroke();
     doc.font("Helvetica").fontSize(10);
 
-    const earningsWithTotal = [...earnings, ["Gross Salary", gross]];
-    const deductionsWithTotal = [...deductions, ["Total Deductions", totalDeductions]];
+    // to align with your format, we do not add separate total rows here, we add them later
+    let rowY = y + 27;
+    const maxRows = Math.max(earnings.length, deductions.length);
 
-    let rowY = y + 25;
-    const rows = Math.max(earningsWithTotal.length, deductionsWithTotal.length);
-    for (let i = 0; i < rows; i++) {
-      const e = earningsWithTotal[i];
-      const d = deductionsWithTotal[i];
+    for (let i = 0; i < maxRows; i++) {
+      const e = earnings[i];
+      const d = deductions[i];
 
       if (e) {
-        const isTotal = e[0] === "Gross Salary";
-        doc.font(isTotal ? "Helvetica-Bold" : "Helvetica");
         doc.text(e[0], leftX, rowY);
-        doc.text(money(e[1]), leftX + 160, rowY, { width: 60, align: "right" });
+        doc.text(money(e[1]), leftX + 180, rowY, { width: 70, align: "right" });
       }
       if (d) {
-        const isTotal = d[0] === "Total Deductions";
-        doc.font(isTotal ? "Helvetica-Bold" : "Helvetica");
         doc.text(d[0], midX + 10, rowY);
         doc.text(money(d[1]), rightX - 60, rowY, { width: 60, align: "right" });
       }
-      rowY += 18;
+
+      rowY += 16;
     }
 
+    // ---------- Total Deductions ----------
+    rowY += 5;
+    doc.font("Helvetica-Bold");
+    doc.text("Total Employee Deductions", midX + 10, rowY);
+    doc.text(money(totalDeductions), rightX - 60, rowY, { width: 60, align: "right" });
+
     // ---------- Net Pay Row ----------
-    y = tableStartY + 150;
+    y = tableStartY + tableHeight + 20;
     doc.rect(50, y, 500, 25).stroke();
-    doc.font("Helvetica-Bold").text("Net Pay", leftX, y + 5);
-    doc.text(money(netPay), leftX + 160, y + 5, { width: 60, align: "right" });
+    doc.font("Helvetica-Bold").fontSize(11);
+    doc.text("Net Salary Payable", leftX, y + 5);
+    doc.text(money(netPay), leftX + 180, y + 5, { width: 70, align: "right" });
 
     // ---------- Amount in Words ----------
     y += 35;
     doc.font("Helvetica").fontSize(10);
-    doc.text("Amount in Words:", leftX, y);
-    doc.text(numberToWords(Math.round(netPay)), leftX + 120, y);
+    doc.text("Amount In Words:", leftX, y);
+    doc.text(numberToWords(Math.round(netPay)), leftX + 120, y, { width: 350 });
 
     // ---------- Footer ----------
     y += 40;
-    doc.fontSize(9).text("This is a system-generated payslip and does not require a signature.", { align: "center" });
+    doc.fontSize(9).text("HR Manager", leftX, y + 10);
+    doc.fontSize(8).text(
+      "This is a system generated payslip, hence signature is not required.",
+      { align: "center" }
+    );
 
     doc.end();
     stream.on("finish", () => {
-      res.download(pdfPath, `Payslip_${result.username}_${month}_${year}.pdf`, err => {
+      res.download(pdfPath, `Payslip_${username}_${month}_${year}.pdf`, err => {
         if (!err) fs.unlinkSync(pdfPath);
       });
     });
@@ -319,6 +532,7 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 
 /* ------------------- Amount in words (Indian system) ------------------- */
 function numberToWords(num) {

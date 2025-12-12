@@ -274,7 +274,7 @@ async dayReport(date, page = 1, limit = 10, viewerId) {
 
 
 /** ------------------ MONTHLY PIVOT WITH TOTAL PRESENT/DAYS ------------------ */
-async getPersistedMonthlyPivot(year, month, viewerId) {
+async getPersistedMonthlyPivot2(year, month, viewerId) {
   const visibleIds = await getVisibleUserIdsFor(viewerId);
 
   const start = new Date(year, month - 1, 1, 0, 0, 0, 0);
@@ -338,6 +338,86 @@ async getPersistedMonthlyPivot(year, month, viewerId) {
   // ✅ Return empId and name explicitly
   return { dates, users: pivot };
 }
+
+async getPersistedMonthlyPivot(year, month, viewerId) {
+  const visibleIds = await getVisibleUserIdsFor(viewerId);
+
+  const start = new Date(year, month - 1, 1, 0, 0, 0, 0);
+  const end = new Date(year, month, 0, 23, 59, 59, 999);
+
+  const filter = { date: { $gte: start, $lte: end } };
+  if (visibleIds?.length) filter.userId = { $in: visibleIds };
+
+  const tz = "Asia/Kolkata";
+  const fmtIST = (d) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(d));
+
+  const records = await userAttendanceReportModel
+    .find(filter)
+    .populate("userId", "user_name empId")
+    .sort({ date: 1 });
+
+  // Build date list
+  const allDatesSet = new Set();
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    allDatesSet.add(fmtIST(d));
+  }
+  records.forEach(r => allDatesSet.add(fmtIST(r.date)));
+  const dates = Array.from(allDatesSet).sort();
+
+  // Fetch Holidays
+  const holiday_Service = new HolidayService();
+  const holidayInfo = await holiday_Service.monthOccurrences(
+    Number(year),
+    Number(month) - 1
+  );
+  const holidayDates = new Set(holidayInfo.items.map(h => h.date));
+
+  // Build pivot
+  const pivot = {};
+
+  for (const rec of records) {
+    const uname = rec.userId?.user_name || "Unknown";
+    const empId = rec.userId?.empId || "Unknown";
+    const d = fmtIST(rec.date);
+
+    if (!pivot[empId]) {
+      pivot[empId] = {
+        empId,
+        user_name: uname,
+        _totals: { present: 0, totalDays: dates.length },
+      };
+      dates.forEach(dt => (pivot[empId][dt] = null));
+    }
+
+    if (rec.attendanceType?.toLowerCase() === "present") {
+      pivot[empId][d] = "present";
+      pivot[empId]._totals.present++;
+    } else if (rec.attendanceType) {
+      pivot[empId][d] = rec.attendanceType.toLowerCase();
+    }
+  }
+
+  // ------------------------------------------------------
+  // 🔥 Inject Holidays for ALL users & ALL dates
+  // ------------------------------------------------------
+  dates.forEach(date => {
+    if (holidayDates.has(date)) {
+      for (const empId in pivot) {
+        pivot[empId][date] = "holiday";
+      }
+    }
+  });
+
+  // Format totals
+  for (const id in pivot) {
+    const { present, totalDays } = pivot[id]._totals;
+    pivot[id]._totals = `${present}/${totalDays}`;
+  }
+
+  return { dates, users: pivot, holidays: holidayInfo.items };
+}
+
 
 
 

@@ -11,7 +11,6 @@ const LeaveTypeService = require("../services/leaveType-service");
 const AttendanceController = express.Router();
 let routes = new routesUtil(atd_service);
 
-
 // helper: normalize label safely
 function normalizeLabel(label) {
   return (label || "").trim();
@@ -157,161 +156,164 @@ AttendanceController.get("/", routes.listForTable)
     }
   })
 
-.post("/leaverequest", async (req, res) => {
-  try {
-    // AUTH
-    const decrypted = await requireAuth(req, res);
-    if (!decrypted) return;
+  .post("/leaverequest", async (req, res) => {
+    try {
+      // AUTH
+      const decrypted = await requireAuth(req, res);
+      if (!decrypted) return;
 
-    // Parse dates
-    const [fd, fm, fy] = req.body.fromDate.split("/");
-    const fromDate = new Date(`${fy}-${fm}-${fd}T00:00:00Z`);
+      // Parse dates
+      const [fd, fm, fy] = req.body.fromDate.split("/");
+      const fromDate = new Date(`${fy}-${fm}-${fd}T00:00:00Z`);
 
-    const toDate = req.body.toDate
-      ? (() => {
-          const [td, tm, ty] = req.body.toDate.split("/");
-          return new Date(`${ty}-${tm}-${td}T00:00:00Z`);
-        })()
-      : fromDate;
+      const toDate = req.body.toDate
+        ? (() => {
+            const [td, tm, ty] = req.body.toDate.split("/");
+            return new Date(`${ty}-${tm}-${td}T00:00:00Z`);
+          })()
+        : fromDate;
 
-    const attendanceType = normalizeLabel(req.body.attendanceType);
-    const requestedDays = Math.ceil((toDate - fromDate) / 86400000) + 1;
+      const attendanceType = normalizeLabel(req.body.attendanceType);
+      const requestedDays = Math.ceil((toDate - fromDate) / 86400000) + 1;
 
-    const requestYear = fromDate.getUTCFullYear();
-    const requestMonth = fromDate.getMonth();
+      const requestYear = fromDate.getUTCFullYear();
+      const requestMonth = fromDate.getMonth();
 
-    // Fetch leave record using service
-    const leaveSvc = new LeaveTypeService();
-    const leaveRecord = await leaveSvc.retrieve({
-      userId: decrypted.id,
-      label: attendanceType
-    });
-
-    if (!leaveRecord) {
-      return res.json({
-        success: false,
-        message: "Leave record not found for this type"
-      });
-    }
-
-    const accrualType = (leaveRecord.accrualType || "").toLowerCase().trim();
-    const joiningMonth = leaveRecord.doj ? new Date(leaveRecord.doj).getMonth() : requestMonth;
-
-    // Find bucket for the year
-    let yearBucket = (leaveRecord.remaining || []).find(b => b.year === requestYear);
-
-    if (!yearBucket) {
-      return res.json({
-        success: false,
-        message: `No leave bucket found for year ${requestYear}`
-      });
-    }
-
-    // BALANCE CHECK
-    if (accrualType === "monthly") {
-      const bal = yearBucket.months[requestMonth] ?? 0;
-      if (requestedDays > bal) {
-        return res.json({ success: false, message: "Insufficient monthly leave balance" });
-      }
-    }
-
-    else if (accrualType === "fixed") {
-      const fixedBal = yearBucket.months[joiningMonth] ?? 0;
-      if (requestedDays > fixedBal) {
-        return res.json({ success: false, message: "Insufficient fixed leave balance" });
-      }
-    }
-
-    else if (accrualType === "annual") {
-      const avail = yearBucket.annualValue ?? leaveRecord.value ?? 0;
-      if (requestedDays > avail) {
-        return res.json({ success: false, message: "Insufficient annual leave balance" });
-      }
-    }
-
-    // ADD ATTENDANCE ENTRIES
-    const atdService = new atd_service();
-    const orgAtdService = new atd_org_service();
-    const leaveEntries = [];
-
-    let d = new Date(fromDate);
-    while (d <= toDate) {
-      const ds = new Date(d);
-      const start = new Date(ds.setUTCHours(0,0,0,0));
-      const end = new Date(ds.setUTCHours(23,59,59,999));
-
-      const exists = await atdService.retrieve({
+      // Fetch leave record using service
+      const leaveSvc = new LeaveTypeService();
+      const leaveRecord = await leaveSvc.retrieve({
         userId: decrypted.id,
-        date: { $gte: start, $lte: end }
+        label: attendanceType,
       });
 
-      if (!exists) {
-        const payload = {
+      if (!leaveRecord) {
+        return res.json({
+          success: false,
+          message: "Leave record not found for this type",
+        });
+      }
+
+      const accrualType = (leaveRecord.accrualType || "").toLowerCase().trim();
+      const joiningMonth = leaveRecord.doj
+        ? new Date(leaveRecord.doj).getMonth()
+        : requestMonth;
+
+      // Find bucket for the year
+      let yearBucket = (leaveRecord.remaining || []).find(
+        (b) => b.year === requestYear
+      );
+
+      if (!yearBucket) {
+        return res.json({
+          success: false,
+          message: `No leave bucket found for year ${requestYear}`,
+        });
+      }
+
+      // BALANCE CHECK
+      if (accrualType === "monthly") {
+        const bal = yearBucket.months[requestMonth] ?? 0;
+        if (requestedDays > bal) {
+          return res.json({
+            success: false,
+            message: "Insufficient monthly leave balance",
+          });
+        }
+      } else if (accrualType === "fixed") {
+        const fixedBal = yearBucket.months[joiningMonth] ?? 0;
+        if (requestedDays > fixedBal) {
+          return res.json({
+            success: false,
+            message: "Insufficient fixed leave balance",
+          });
+        }
+      } else if (accrualType === "annual") {
+        const avail = yearBucket.annualValue ?? leaveRecord.value ?? 0;
+        if (requestedDays > avail) {
+          return res.json({
+            success: false,
+            message: "Insufficient annual leave balance",
+          });
+        }
+      }
+
+      // ADD ATTENDANCE ENTRIES
+      const atdService = new atd_service();
+      const orgAtdService = new atd_org_service();
+      const leaveEntries = [];
+
+      let d = new Date(fromDate);
+      while (d <= toDate) {
+        const ds = new Date(d);
+        const start = new Date(ds.setUTCHours(0, 0, 0, 0));
+        const end = new Date(ds.setUTCHours(23, 59, 59, 999));
+
+        const exists = await atdService.retrieve({
           userId: decrypted.id,
-          date: new Date(d),
-          attendanceType,
-          reasonForApplying: req.body.reasonForApplying,
-        };
+          date: { $gte: start, $lte: end },
+        });
 
-        const rec = await atdService.add(payload);
-        await orgAtdService.add(payload);
-        leaveEntries.push(rec);
+        if (!exists) {
+          const payload = {
+            userId: decrypted.id,
+            date: new Date(d),
+            attendanceType,
+            reasonForApplying: req.body.reasonForApplying,
+          };
+
+          const rec = await atdService.add(payload);
+          await orgAtdService.add(payload);
+          leaveEntries.push(rec);
+        }
+        d.setDate(d.getDate() + 1);
       }
-      d.setDate(d.getDate() + 1);
-    }
 
-    if (leaveEntries.length === 0) {
-      return res.json({ success: false, message: "Leave already applied earlier" });
-    }
-
-    // DEDUCT BALANCE
-    if (accrualType === "monthly") {
-      yearBucket.months[requestMonth] -= requestedDays;
-      leaveRecord.value -= requestedDays;
-    }
-
-    else if (accrualType === "fixed") {
-      yearBucket.months[joiningMonth] -= requestedDays;
-      leaveRecord.value -= requestedDays;
-    }
-
-    else if (accrualType === "annual") {
-      yearBucket.annualValue -= requestedDays;
-      leaveRecord.value -= requestedDays;
-    }
-
-    // REPLACE UPDATED BUCKET
-    leaveRecord.remaining = leaveRecord.remaining.map(b =>
-      b.year === requestYear ? yearBucket : b
-    );
-   console.log(leaveRecord._id, leaveRecord.remaining[0].months[10]);
-   
-    // SAVE CHANGES using service update
-  let rss=   await leaveSvc.update(leaveRecord,leaveRecord._id);
-   console.log(rss);
-
-    // SUCCESS
-    return res.json({
-      success: true,
-      message: "Leave applied successfully",
-      data: leaveEntries,
-      updatedBalance: {
-        year: requestYear,
-        remaining: yearBucket.months,
-        annualValue: yearBucket.annualValue,
-        totalValue: leaveRecord.value
+      if (leaveEntries.length === 0) {
+        return res.json({
+          success: false,
+          message: "Leave already applied earlier",
+        });
       }
-    });
 
-  } catch (err) {
-    console.error("leaverequest error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-})
+      // DEDUCT BALANCE
+      if (accrualType === "monthly") {
+        yearBucket.months[requestMonth] -= requestedDays;
+        leaveRecord.value -= requestedDays;
+      } else if (accrualType === "fixed") {
+        yearBucket.months[joiningMonth] -= requestedDays;
+        leaveRecord.value -= requestedDays;
+      } else if (accrualType === "annual") {
+        yearBucket.annualValue -= requestedDays;
+        leaveRecord.value -= requestedDays;
+      }
 
+      // REPLACE UPDATED BUCKET
+      leaveRecord.remaining = leaveRecord.remaining.map((b) =>
+        b.year === requestYear ? yearBucket : b
+      );
+      console.log(leaveRecord._id, leaveRecord.remaining[0].months[10]);
 
+      // SAVE CHANGES using service update
+      let rss = await leaveSvc.update(leaveRecord, leaveRecord._id);
+      console.log(rss);
 
-
+      // SUCCESS
+      return res.json({
+        success: true,
+        message: "Leave applied successfully",
+        data: leaveEntries,
+        updatedBalance: {
+          year: requestYear,
+          remaining: yearBucket.months,
+          annualValue: yearBucket.annualValue,
+          totalValue: leaveRecord.value,
+        },
+      });
+    } catch (err) {
+      console.error("leaverequest error:", err);
+      res.status(500).json({ success: false, message: "Server error" });
+    }
+  })
 
   .get("/all", async (_req, res) => {
     try {
@@ -334,132 +336,140 @@ AttendanceController.get("/", routes.listForTable)
     }
   })
 
-.get("/all/:id", async (req, res) => {
-  try {
-    const service = new atd_service();
+  .get("/all/:id", async (req, res) => {
+    try {
+      const service = new atd_service();
 
-    const currentYear = new Date().getFullYear();
-    const endOfYear = new Date(currentYear, 11, 31, 23, 59, 59); // Dec 31, 23:59:59
+      const currentYear = new Date().getFullYear();
+      const endOfYear = new Date(currentYear, 11, 31, 23, 59, 59); // Dec 31, 23:59:59
 
-    const query = {
-      userId: req.params.id,
-      attendanceType: {
-        $in: ["Sick Leave", "Casual Leave", "Planned Leave", "Maternity Leave"],
-      },
-      date: { $lte: endOfYear },
-      ...req.query, // in case you send pagination (page, limit)
-    };
+      const query = {
+        userId: req.params.id,
+        attendanceType: {
+          $in: [
+            "Sick Leave",
+            "Casual Leave",
+            "Planned Leave",
+            "Maternity Leave",
+          ],
+        },
+        date: { $lte: endOfYear },
+        ...req.query, // in case you send pagination (page, limit)
+      };
 
-    const records = await service.listForTableleave(query, { sort: { date: -1 } });
-    res.json(records);
-  } catch (e) {
-    console.error("GET /all/:id error:", e);
-    res.status(500).json({ message: "Server error" });
-  }
-})
-
-
-.put("/approval/:id", async (req, res) => {
-  try {
-    const decrypted = await requireAuth(req, res);
-    if (!decrypted) return;
-
-    const userservice = new user_service();
-    const approver = await userservice.retrieve({ _id: decrypted.id });
-
-    const atdService = new atd_service();
-    const orgService = new atd_org_service();
-
-    // get attendance entry
-    const details = await atdService.retrieve({ _id: req.params.id });
-    if (!details) {
-      return res.status(404).json({ message: "Attendance record not found" });
-    }
-
-    const isApprove = req.body.approved === true;
-
-    // COMMON update body
-    const body = {
-      approved: isApprove,
-      remarks: `By ${approver.user_name}`,
-    };
-
-    // ----------------------------------------
-    //  IF REJECTED → RETURN LEAVE BACK
-    // ----------------------------------------
-    if (!isApprove) {
-      const leaveType = normalizeLabel(details.attendanceType);
-      const leaveSvc = new LeaveTypeService();
-
-      // find leave record for user + type
-      const leaveRecord = await leaveSvc.retrieve({
-        userId: details.userId,
-        label: leaveType
+      const records = await service.listForTableleave(query, {
+        sort: { date: -1 },
       });
-
-      if (leaveRecord) {
-        const requestDate = new Date(details.date);
-        const requestYear = requestDate.getFullYear();
-        const requestMonth = requestDate.getMonth();
-
-        // locate bucket
-        let yearBucket = (leaveRecord.remaining || []).find(b => b.year === requestYear);
-        if (!yearBucket) {
-          return res.json({
-            success: false,
-            message: `Year bucket not found for ${requestYear}`
-          });
-        }
-
-        const accrualType = (leaveRecord.accrualType || "").toLowerCase().trim();
-
-        // 1 DAY must be returned
-        const returnDays = 1;
-
-        // Restore based on accrualType
-        if (accrualType === "monthly") {
-          yearBucket.months[requestMonth] += returnDays;
-          leaveRecord.value += returnDays;
-        }
-        else if (accrualType === "fixed") {
-          const dojMonth = leaveRecord.doj ? new Date(leaveRecord.doj).getMonth() : requestMonth;
-          yearBucket.months[dojMonth] += returnDays;
-          leaveRecord.value += returnDays;
-        }
-        else if (accrualType === "annual") {
-          yearBucket.annualValue += returnDays;
-          leaveRecord.value += returnDays;
-        }
-
-        // update buckets
-        leaveRecord.remaining = leaveRecord.remaining.map(b =>
-          b.year === requestYear ? yearBucket : b
-        );
-
-        // save updated leave record
-        await leaveSvc.update( leaveRecord,leaveRecord._id);
-      }
+      res.json(records);
+    } catch (e) {
+      console.error("GET /all/:id error:", e);
+      res.status(500).json({ message: "Server error" });
     }
+  })
 
-    // ----------------------------------------
-    // UPDATE ATTENDANCE RECORD
-    // ----------------------------------------
-    await atdService.update(body, { _id: req.params.id });
-    await orgService.update(body, { _id: req.params.id });
+  .put("/approval/:id", async (req, res) => {
+    try {
+      const decrypted = await requireAuth(req, res);
+      if (!decrypted) return;
 
-    return res.json({
-      success: true,
-      status: isApprove ? "approved" : "rejected",
-      restored: !isApprove ? 1 : 0,
-      data: details
-    });
+      const userservice = new user_service();
+      const approver = await userservice.retrieve({ _id: decrypted.id });
 
-  } catch (e) {
-    console.error("PUT /approval/:id error:", e);
-    res.status(500).json({ message: "Server error" });
-  }
-})
+      const atdService = new atd_service();
+      const orgService = new atd_org_service();
 
+      // get attendance entry
+      const details = await atdService.retrieve({ _id: req.params.id });
+      if (!details) {
+        return res.status(404).json({ message: "Attendance record not found" });
+      }
+
+      const isApprove = req.body.approved === true;
+
+      // COMMON update body
+      const body = {
+        approved: isApprove,
+        remarks: `By ${approver.user_name}`,
+      };
+
+      // ----------------------------------------
+      //  IF REJECTED → RETURN LEAVE BACK
+      // ----------------------------------------
+      if (!isApprove) {
+        const leaveType = normalizeLabel(details.attendanceType);
+        const leaveSvc = new LeaveTypeService();
+
+        // find leave record for user + type
+        const leaveRecord = await leaveSvc.retrieve({
+          userId: details.userId,
+          label: leaveType,
+        });
+
+        if (leaveRecord) {
+          const requestDate = new Date(details.date);
+          const requestYear = requestDate.getFullYear();
+          const requestMonth = requestDate.getMonth();
+
+          // locate bucket
+          let yearBucket = (leaveRecord.remaining || []).find(
+            (b) => b.year === requestYear
+          );
+          if (!yearBucket) {
+            return res.json({
+              success: false,
+              message: `Year bucket not found for ${requestYear}`,
+            });
+          }
+
+          const accrualType = (leaveRecord.accrualType || "")
+            .toLowerCase()
+            .trim();
+
+          // 1 DAY must be returned
+          const returnDays = 1;
+
+          // Restore based on accrualType
+          if (accrualType === "monthly") {
+            yearBucket.months[requestMonth] += returnDays;
+            leaveRecord.value += returnDays;
+          } else if (accrualType === "fixed") {
+            const dojMonth = leaveRecord.doj
+              ? new Date(leaveRecord.doj).getMonth()
+              : requestMonth;
+            yearBucket.months[dojMonth] += returnDays;
+            leaveRecord.value += returnDays;
+          } else if (accrualType === "annual") {
+            yearBucket.annualValue += returnDays;
+            leaveRecord.value += returnDays;
+          }
+
+          // update buckets
+          leaveRecord.remaining = leaveRecord.remaining.map((b) =>
+            b.year === requestYear ? yearBucket : b
+          );
+
+          // save updated leave record
+          await leaveSvc.update(leaveRecord, leaveRecord._id);
+        }
+      }
+
+      // ----------------------------------------
+      // UPDATE ATTENDANCE RECORD
+      // ----------------------------------------
+      await atdService.update(body, { _id: req.params.id });
+      await orgService.update(body, { _id: req.params.id });
+
+      return res.json({
+        success: true,
+        status: isApprove ? "approved" : "rejected",
+        restored: !isApprove ? 1 : 0,
+        data: details,
+      });
+    } catch (e) {
+      console.error("PUT /approval/:id error:", e);
+      res.status(500).json({ message: "Server error" });
+    }
+  })
 
   .get("/allmyattendance", async (req, res) => {
     try {
