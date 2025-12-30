@@ -42,7 +42,7 @@ class UserService extends crud_service {
             main: [
               {
                 menuName: "Dashboard",
-                children: [{ submenuName: "Dashboard" }],
+                children: [{ submenuName: "Dashboard" },{ submenuName: "Feed" }],
               },
               {
                 menuName: "Assign Templates",
@@ -96,7 +96,7 @@ class UserService extends crud_service {
             main: [
               {
                 menuName: "Dashboard",
-                children: [{ submenuName: "Dashboard" }],
+                children: [{ submenuName: "Dashboard" },{ submenuName: "Feed" }],
               },
               {
                 menuName: "Certificate",
@@ -148,7 +148,7 @@ class UserService extends crud_service {
             main: [
               {
                 menuName: "Dashboard",
-                children: [{ submenuName: "Dashboard" }],
+                children: [{ submenuName: "Dashboard" },{ submenuName: "Feed" }],
               },
               {
                 menuName: "Attendance",
@@ -176,7 +176,7 @@ class UserService extends crud_service {
             main: [
               {
                 menuName: "Dashboard",
-                children: [{ submenuName: "Dashboard" }],
+                children: [{ submenuName: "Dashboard" },{ submenuName: "Feed" }],
               },
               {
                 menuName: "Certificate",

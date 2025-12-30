@@ -21,6 +21,7 @@ const userCheck = async (req, res, next) => {
 };
 const routes = express.Router();
 routes.use("/api", master_router)
+.use("/uploads", express.static(path.join(process.cwd(), "uploads")))
 .post("/login", async (req, res) => {
   try {
     let service = new user_service();
