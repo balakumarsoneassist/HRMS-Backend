@@ -436,16 +436,121 @@ function ensureYearBucket(leaveRecord, year, { accrualType, perMonth = 0, fixedA
      * @param {Date|string} doj      user's date of joining (required for pro-rating)
      */
 
+// this.leaveModelCreate = async (userId, userRoleName, doj) => {
+//   console.log("Seeding leaves for:", userId, userRoleName, doj);
+
+//   const policySvc = new LeavePolicyService();
+//   const leaveSvc = new LeaveTypeService();
+
+//   // 1) fetch active policies
+//   let policies = await policySvc.listActive(userRoleName);
+
+//   // fallback defaults
+//   if (!policies || policies.length === 0) {
+//     const defaults = [
+//       { label: "Sick Leave", amount: 1, accrualType: "monthly", active: true },
+//       { label: "Casual Leave", amount: 1, accrualType: "monthly", active: true },
+//       { label: "Planned Leave", amount: 7, accrualType: "annual", active: true },
+//       { label: "Maternity Leave", amount: 15, accrualType: "fixed", active: true },
+//       { label: "Paternity Leave", amount: 5, accrualType: "annual", active: true },
+//       { label: "Compoff Leave", amount: 3, accrualType: "fixed", active: true },
+//     ];
+
+//     try {
+//       if (typeof policySvc.addMany === "function") {
+//         await policySvc.addMany(defaults);
+//       } else await Promise.all(defaults.map(p => policySvc.add(p)));
+//     } catch (_) { /* ignore duplicates */ }
+
+//     policies = await policySvc.listActive(userRoleName);
+//   }
+
+//   const from = doj ? new Date(doj) : new Date();
+//   const joinYear = from.getFullYear();
+//   const remMonths = remainingMonthsInYear(from);
+//   const currentYear = new Date().getFullYear();
+
+//   for (const p of policies) {
+//     if (!p.active) continue;
+
+//     const label = normalizeLabel(p.label);
+//     if (!ALLOWED_LEAVES.includes(label)) continue;
+
+//     const accrualType = String(p.accrualType || "").toLowerCase().trim();
+//     const amt = Number(p.amount ?? p.value ?? 0);
+
+//     let leaveDoc = await leaveSvc.retrieve({ userId, label });
+
+//     if (!leaveDoc) {
+//       let initial = 0;
+//       const months = Array(12).fill(0);
+
+//       if (accrualType === "monthly") {
+//         initial = amt;
+//         months.fill(amt);
+//       } else if (accrualType === "annual") {
+//         initial = Math.floor((amt * remMonths) / 12);
+//         const perMonth = remMonths > 0 ? Math.floor(initial / remMonths) : 0;
+//         for (let i = 12 - remMonths; i < 12; i++) months[i] = perMonth;
+//         months[11] += initial - (perMonth * remMonths);
+//       } else if (accrualType === "fixed") {
+//         initial = amt;
+//         months[from.getMonth()] = amt;
+//       }
+
+//       initial = Math.max(0, Math.floor(initial));
+// console.log(
+//         userId,
+//         label,
+//         initial,
+//         accrualType,
+//       );
+
+//       leaveDoc = await leaveSvc.add({
+//         userId,
+//         label,
+//         value: initial,
+//         accrualType,
+//         doj: from,
+//         remaining: [{
+//           year: joinYear,
+//           months,
+//           annualValue: accrualType === "annual" ? amt : undefined
+//         }]
+//       });
+//     }
+//     console.log(leaveDoc);
+//     leaveDoc =  leaveDoc.data
+//     if (!getYearBucket(leaveDoc, currentYear)) {
+//       console.log("🔁 Initializing new leave bucket for year:", currentYear);
+
+//       const perMonth = accrualType === "monthly" ? amt : 0;
+//       ensureYearBucket(leaveDoc, currentYear, { accrualType, perMonth, fixedAmount: amt, doj: leaveDoc.doj });
+
+//       if (accrualType === "annual") {
+//         const bucket = getYearBucket(leaveDoc, currentYear);
+//         bucket.annualValue = amt;
+//       }
+
+//       await leaveSvc.add({
+//   ...leaveDoc, // spread existing fields
+//   remaining: leaveDoc.remaining, // updated buckets
+// });
+//     }
+//   }
+
+//   return await leaveSvc.retrieve({ userId });
+// };
 this.leaveModelCreate = async (userId, userRoleName, doj) => {
   console.log("Seeding leaves for:", userId, userRoleName, doj);
 
   const policySvc = new LeavePolicyService();
   const leaveSvc = new LeaveTypeService();
 
-  // 1) fetch active policies
+  // 1) Fetch active policies
   let policies = await policySvc.listActive(userRoleName);
 
-  // fallback defaults
+  // 2) Fallback defaults if no policies
   if (!policies || policies.length === 0) {
     const defaults = [
       { label: "Sick Leave", amount: 1, accrualType: "monthly", active: true },
@@ -459,82 +564,110 @@ this.leaveModelCreate = async (userId, userRoleName, doj) => {
     try {
       if (typeof policySvc.addMany === "function") {
         await policySvc.addMany(defaults);
-      } else await Promise.all(defaults.map(p => policySvc.add(p)));
-    } catch (_) { /* ignore duplicates */ }
+      } else {
+        await Promise.all(defaults.map((p) => policySvc.add(p)));
+      }
+    } catch (_) {
+      // ignore duplicates
+    }
 
     policies = await policySvc.listActive(userRoleName);
   }
 
-  const from = doj ? new Date(doj) : new Date();
-  const joinYear = from.getFullYear();
-  const remMonths = remainingMonthsInYear(from);
   const currentYear = new Date().getFullYear();
+  const nowMonth = new Date().getMonth(); // 0..11
+  const safeDoj = doj ? new Date(doj) : null;
+  const from = safeDoj && !isNaN(safeDoj.getTime()) ? safeDoj : new Date(); // stored, but not used for year logic
+
+  // Helper: months allocation for CURRENT YEAR ONLY
+  const buildMonthsForCurrentYear = (accrualType, amt) => {
+    const months = Array(12).fill(0);
+
+    if (accrualType === "monthly") {
+      // If you want to credit only from current month onwards (recommended):
+      for (let m = nowMonth; m < 12; m++) months[m] = amt;
+
+      // If you want to credit full year immediately, use:
+      // months.fill(amt);
+    } else if (accrualType === "annual") {
+      // Full annual credit (choose where you credit it)
+      months[0] = amt; // credit in Jan
+      // or months[11] = amt; // credit in Dec
+    } else if (accrualType === "fixed") {
+      // Credit once in current month
+      months[nowMonth] = amt;
+    }
+
+    return months;
+  };
 
   for (const p of policies) {
-    if (!p.active) continue;
+    if (!p?.active) continue;
 
     const label = normalizeLabel(p.label);
     if (!ALLOWED_LEAVES.includes(label)) continue;
 
-    const accrualType = String(p.accrualType || "").toLowerCase().trim();
+    const accrualType = String(p.accrualType || "").toLowerCase().trim(); // monthly|annual|fixed
     const amt = Number(p.amount ?? p.value ?? 0);
 
-    let leaveDoc = await leaveSvc.retrieve({ userId, label });
+    // Retrieve existing
+    const existing = await leaveSvc.retrieve({ userId, label });
+    let leaveDoc = existing?.data || null;
 
+    const months = buildMonthsForCurrentYear(accrualType, amt);
+
+    // Set initial value for the doc as the sum of current year months
+    const initialValue = months.reduce((a, b) => a + b, 0);
+
+    // CREATE if not exists
     if (!leaveDoc) {
-      let initial = 0;
-      const months = Array(12).fill(0);
+      console.log("Creating LeaveType:", { userId, label, initialValue, accrualType });
 
-      if (accrualType === "monthly") {
-        initial = amt;
-        months.fill(amt);
-      } else if (accrualType === "annual") {
-        initial = Math.floor((amt * remMonths) / 12);
-        const perMonth = remMonths > 0 ? Math.floor(initial / remMonths) : 0;
-        for (let i = 12 - remMonths; i < 12; i++) months[i] = perMonth;
-        months[11] += initial - (perMonth * remMonths);
-      } else if (accrualType === "fixed") {
-        initial = amt;
-        months[from.getMonth()] = amt;
-      }
-
-      initial = Math.max(0, Math.floor(initial));
-
-      leaveDoc = await leaveSvc.add({
+      const created = await leaveSvc.add({
         userId,
         label,
-        value: initial,
+        value: initialValue,
         accrualType,
-        doj: from,
-        remaining: [{
-          year: joinYear,
-          months,
-          annualValue: accrualType === "annual" ? amt : undefined
-        }]
+        doj: from, // store DOJ but not used for bucket decisions
+        remaining: [
+          {
+            year: currentYear,
+            months,
+            annualValue: accrualType === "annual" ? amt : undefined,
+          },
+        ],
       });
+
+      leaveDoc = created?.data;
+      continue;
     }
-    console.log(leaveDoc);
-    leaveDoc =  leaveDoc.data
-    if (!getYearBucket(leaveDoc, currentYear)) {
-      console.log("🔁 Initializing new leave bucket for year:", currentYear);
 
-      const perMonth = accrualType === "monthly" ? amt : 0;
-      ensureYearBucket(leaveDoc, currentYear, { accrualType, perMonth, fixedAmount: amt, doj: leaveDoc.doj });
+    // If exists: ensure CURRENT YEAR bucket only
+    leaveDoc.remaining = Array.isArray(leaveDoc.remaining) ? leaveDoc.remaining : [];
 
-      if (accrualType === "annual") {
-        const bucket = getYearBucket(leaveDoc, currentYear);
-        bucket.annualValue = amt;
-      }
+    const bucket = getYearBucket(leaveDoc, currentYear);
+    if (!bucket) {
+      // Add only current year bucket
+      leaveDoc.remaining.push({
+        year: currentYear,
+        months,
+        annualValue: accrualType === "annual" ? amt : undefined,
+      });
 
-      await leaveSvc.add({
-  ...leaveDoc, // spread existing fields
-  remaining: leaveDoc.remaining, // updated buckets
-});
+      // ✅ UPDATE (DO NOT use add for update)
+      await leaveSvc.update(
+        {
+          remaining: leaveDoc.remaining,
+          updatedAt: new Date(),
+        },
+        leaveDoc._id // IMPORTANT: your update expects (payload, id)
+      );
     }
   }
 
   return await leaveSvc.retrieve({ userId });
 };
+
 
 
 
