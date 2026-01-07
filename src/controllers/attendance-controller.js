@@ -27,6 +27,12 @@ async function requireAuth(req, res) {
   const decrypted = await userservice.checkValidUser(token);
   return decrypted;
 }
+const EmailService = require("../services/email-service");
+
+const formatDateIN = (d) => {
+  const dt = new Date(d);
+  return dt.toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "2-digit" });
+};
 
 AttendanceController.get("/", routes.listForTable)
 
@@ -367,109 +373,242 @@ AttendanceController.get("/", routes.listForTable)
     }
   })
 
-  .put("/approval/:id", async (req, res) => {
-    try {
-      const decrypted = await requireAuth(req, res);
-      if (!decrypted) return;
+  // .put("/approval/:id", async (req, res) => {
+  //   try {
+  //     const decrypted = await requireAuth(req, res);
+  //     if (!decrypted) return;
 
-      const userservice = new user_service();
-      const approver = await userservice.retrieve({ _id: decrypted.id });
+  //     const userservice = new user_service();
+  //     const approver = await userservice.retrieve({ _id: decrypted.id });
 
-      const atdService = new atd_service();
-      const orgService = new atd_org_service();
+  //     const atdService = new atd_service();
+  //     const orgService = new atd_org_service();
 
-      // get attendance entry
-      const details = await atdService.retrieve({ _id: req.params.id });
-      if (!details) {
-        return res.status(404).json({ message: "Attendance record not found" });
+  //     // get attendance entry
+  //     const details = await atdService.retrieve({ _id: req.params.id });
+  //     if (!details) {
+  //       return res.status(404).json({ message: "Attendance record not found" });
+  //     }
+
+  //     const isApprove = req.body.approved === true;
+
+  //     // COMMON update body
+  //     const body = {
+  //       approved: isApprove,
+  //       remarks: `By ${approver.user_name}`,
+  //     };
+
+  //     // ----------------------------------------
+  //     //  IF REJECTED → RETURN LEAVE BACK
+  //     // ----------------------------------------
+  //     if (!isApprove) {
+  //       const leaveType = normalizeLabel(details.attendanceType);
+  //       const leaveSvc = new LeaveTypeService();
+
+  //       // find leave record for user + type
+  //       const leaveRecord = await leaveSvc.retrieve({
+  //         userId: details.userId,
+  //         label: leaveType,
+  //       });
+
+  //       if (leaveRecord) {
+  //         const requestDate = new Date(details.date);
+  //         const requestYear = requestDate.getFullYear();
+  //         const requestMonth = requestDate.getMonth();
+
+  //         // locate bucket
+  //         let yearBucket = (leaveRecord.remaining || []).find(
+  //           (b) => b.year === requestYear
+  //         );
+  //         if (!yearBucket) {
+  //           return res.json({
+  //             success: false,
+  //             message: `Year bucket not found for ${requestYear}`,
+  //           });
+  //         }
+
+  //         const accrualType = (leaveRecord.accrualType || "")
+  //           .toLowerCase()
+  //           .trim();
+
+  //         // 1 DAY must be returned
+  //         const returnDays = 1;
+
+  //         // Restore based on accrualType
+  //         if (accrualType === "monthly") {
+  //           yearBucket.months[requestMonth] += returnDays;
+  //           leaveRecord.value += returnDays;
+  //         } else if (accrualType === "fixed") {
+  //           const dojMonth = leaveRecord.doj
+  //             ? new Date(leaveRecord.doj).getMonth()
+  //             : requestMonth;
+  //           yearBucket.months[dojMonth] += returnDays;
+  //           leaveRecord.value += returnDays;
+  //         } else if (accrualType === "annual") {
+  //           yearBucket.annualValue += returnDays;
+  //           leaveRecord.value += returnDays;
+  //         }
+
+  //         // update buckets
+  //         leaveRecord.remaining = leaveRecord.remaining.map((b) =>
+  //           b.year === requestYear ? yearBucket : b
+  //         );
+
+  //         // save updated leave record
+  //         await leaveSvc.update(leaveRecord, leaveRecord._id);
+  //       }
+  //     }
+
+  //     // ----------------------------------------
+  //     // UPDATE ATTENDANCE RECORD
+  //     // ----------------------------------------
+  //     await atdService.update(body, { _id: req.params.id });
+  //     await orgService.update(body, { _id: req.params.id });
+
+  //     return res.json({
+  //       success: true,
+  //       status: isApprove ? "approved" : "rejected",
+  //       restored: !isApprove ? 1 : 0,
+  //       data: details,
+  //     });
+  //   } catch (e) {
+  //     console.error("PUT /approval/:id error:", e);
+  //     res.status(500).json({ message: "Server error" });
+  //   }
+  // })
+.put("/approval/:id", async (req, res) => {
+  try {
+    const decrypted = await requireAuth(req, res);
+    if (!decrypted) return;
+
+    const userservice = new user_service();
+    const approver = await userservice.retrieve({ _id: decrypted.id });
+
+    const atdService = new atd_service();
+    const orgService = new atd_org_service();
+
+    // get attendance entry
+    const details = await atdService.retrieve({ _id: req.params.id });
+    if (!details) {
+      return res.status(404).json({ message: "Attendance record not found" });
+    }
+
+    const isApprove = req.body.approved === true;
+
+    // COMMON update body
+    const body = {
+      approved: isApprove,
+      remarks: `By ${approver.user_name}`,
+    };
+
+    // ----------------------------------------
+    //  IF REJECTED → RETURN LEAVE BACK
+    // ----------------------------------------
+    if (!isApprove) {
+      const leaveType = normalizeLabel(details.attendanceType);
+      const leaveSvc = new LeaveTypeService();
+
+      const leaveRecordResp = await leaveSvc.retrieve({
+        userId: details.userId,
+        label: leaveType,
+      });
+
+      const leaveRecord = leaveRecordResp?.data || leaveRecordResp;
+
+      if (leaveRecord) {
+        const requestDate = new Date(details.date);
+        const requestYear = requestDate.getFullYear();
+        const requestMonth = requestDate.getMonth();
+
+        let yearBucket = (leaveRecord.remaining || []).find((b) => b.year === requestYear);
+        if (!yearBucket) {
+          return res.json({
+            success: false,
+            message: `Year bucket not found for ${requestYear}`,
+          });
+        }
+
+        const accrualType = String(leaveRecord.accrualType || "").toLowerCase().trim();
+        const returnDays = 1;
+
+        if (accrualType === "monthly") {
+          yearBucket.months[requestMonth] += returnDays;
+          leaveRecord.value += returnDays;
+        } else if (accrualType === "fixed") {
+          const dojMonth = leaveRecord.doj
+            ? new Date(leaveRecord.doj).getMonth()
+            : requestMonth;
+          yearBucket.months[dojMonth] += returnDays;
+          leaveRecord.value += returnDays;
+        } else if (accrualType === "annual") {
+          yearBucket.annualValue = Number(yearBucket.annualValue || 0) + returnDays;
+          leaveRecord.value += returnDays;
+        }
+
+        leaveRecord.remaining = leaveRecord.remaining.map((b) =>
+          b.year === requestYear ? yearBucket : b
+        );
+
+        // ✅ your service expects update(payload, id)
+        await leaveSvc.update(
+          {
+            remaining: leaveRecord.remaining,
+            value: leaveRecord.value,
+            updatedAt: new Date(),
+          },
+          leaveRecord._id
+        );
       }
+    }
 
-      const isApprove = req.body.approved === true;
+    // ----------------------------------------
+    // UPDATE ATTENDANCE RECORD
+    // ----------------------------------------
+    await atdService.update(body, { _id: req.params.id });
+    await orgService.update(body, { _id: req.params.id });
 
-      // COMMON update body
-      const body = {
-        approved: isApprove,
-        remarks: `By ${approver.user_name}`,
-      };
+    // ----------------------------------------
+    // SEND EMAIL (TEMPLATE SELECT)
+    // ----------------------------------------
+    try {
+      // get employee user record to get email
+      const employee = await userservice.retrieve({ _id: details.userId });
 
-      // ----------------------------------------
-      //  IF REJECTED → RETURN LEAVE BACK
-      // ----------------------------------------
-      if (!isApprove) {
-        const leaveType = normalizeLabel(details.attendanceType);
-        const leaveSvc = new LeaveTypeService();
+      if (employee?.email) {
+        const emailSvc = new EmailService();
 
-        // find leave record for user + type
-        const leaveRecord = await leaveSvc.retrieve({
-          userId: details.userId,
-          label: leaveType,
-        });
+        const vars = {
+          companyName: process.env.MAIL_FROM_NAME || "HR Portal",
+          name: employee.user_name || "Employee",
+          leaveType: normalizeLabel(details.attendanceType),
+          date: formatDateIN(details.date),
+          approvedBy: approver.user_name || "Manager",
+          remarks: body.remarks,
+          rejectionReason: req.body.rejectionReason || req.body.reason || "Not mentioned",
+        };
 
-        if (leaveRecord) {
-          const requestDate = new Date(details.date);
-          const requestYear = requestDate.getFullYear();
-          const requestMonth = requestDate.getMonth();
-
-          // locate bucket
-          let yearBucket = (leaveRecord.remaining || []).find(
-            (b) => b.year === requestYear
-          );
-          if (!yearBucket) {
-            return res.json({
-              success: false,
-              message: `Year bucket not found for ${requestYear}`,
-            });
-          }
-
-          const accrualType = (leaveRecord.accrualType || "")
-            .toLowerCase()
-            .trim();
-
-          // 1 DAY must be returned
-          const returnDays = 1;
-
-          // Restore based on accrualType
-          if (accrualType === "monthly") {
-            yearBucket.months[requestMonth] += returnDays;
-            leaveRecord.value += returnDays;
-          } else if (accrualType === "fixed") {
-            const dojMonth = leaveRecord.doj
-              ? new Date(leaveRecord.doj).getMonth()
-              : requestMonth;
-            yearBucket.months[dojMonth] += returnDays;
-            leaveRecord.value += returnDays;
-          } else if (accrualType === "annual") {
-            yearBucket.annualValue += returnDays;
-            leaveRecord.value += returnDays;
-          }
-
-          // update buckets
-          leaveRecord.remaining = leaveRecord.remaining.map((b) =>
-            b.year === requestYear ? yearBucket : b
-          );
-
-          // save updated leave record
-          await leaveSvc.update(leaveRecord, leaveRecord._id);
+        if (isApprove) {
+          await emailSvc.sendTemplateEmail("LEAVE_APPROVED", employee.email, vars);
+        } else {
+          await emailSvc.sendTemplateEmail("LEAVE_REJECTED", employee.email, vars);
         }
       }
-
-      // ----------------------------------------
-      // UPDATE ATTENDANCE RECORD
-      // ----------------------------------------
-      await atdService.update(body, { _id: req.params.id });
-      await orgService.update(body, { _id: req.params.id });
-
-      return res.json({
-        success: true,
-        status: isApprove ? "approved" : "rejected",
-        restored: !isApprove ? 1 : 0,
-        data: details,
-      });
-    } catch (e) {
-      console.error("PUT /approval/:id error:", e);
-      res.status(500).json({ message: "Server error" });
+    } catch (mailErr) {
+      console.error("❌ Email send failed:", mailErr.message);
+      // Don't break approval flow if email fails
     }
-  })
+
+    return res.json({
+      success: true,
+      status: isApprove ? "approved" : "rejected",
+      restored: !isApprove ? 1 : 0,
+      data: details,
+    });
+  } catch (e) {
+    console.error("PUT /approval/:id error:", e);
+    res.status(500).json({ message: "Server error" });
+  }
+})
 
   .get("/allmyattendance", async (req, res) => {
     try {
