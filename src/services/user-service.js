@@ -79,7 +79,7 @@ class UserService extends crud_service {
               },
               {
                 menuName: "Leave Policy",
-                children: [{ submenuName: "Yearly Leave Policy" }],
+                children: [{ submenuName: "Yearly Leave Policy" },{ submenuName: "Users Leave Policy Edit" }],
               },
               {
                 menuName: "Holiday Planning",
