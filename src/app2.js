@@ -124,7 +124,7 @@ app.use(routes);
 // --------------------
 // Default Route
 // --------------------
-app.get("/", (req, res) => {
+app.get("/test", (req, res) => {
   res.send("HRMS API is running");
 });
 

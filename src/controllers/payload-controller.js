@@ -121,7 +121,7 @@ async function calculateMonthlySalary(userId, year, month) {
   const workingDays = totalDays - weekends - holidayCount;
 
   // ✅ Get Attendance Pivot
-  const pivotResult = await attendanceService.getPersistedMonthlyPivot(
+  const pivotResult = await attendanceService.getPersistedMonthlyPivotHourly(
     Number(year),
     Number(month),
     userId
