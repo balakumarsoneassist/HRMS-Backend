@@ -19,7 +19,7 @@ const FeedController = require("../controllers/feed-controller");
 const masterRouter = express.Router();
 masterRouter
   .use("/api/upload-users", uploadUserRoutes)
-  .use("/user/upload-docs",UserDocController)
+  .use("/user/upload-docs", UserDocController)
   .use("/user", user_controller)
   .use("/access", access_controller)
   .use("/attendance", attendance_controller)
@@ -29,8 +29,8 @@ masterRouter
   .use("/standardmenu", standardMenu_controller)
   .use("/userattendancereport", UserAttendanceReportController)
   .use("/payloads", PayloadController)
-  .use("/deleted-users", DeletedUserController) 
-  .use("/chatbot",chatbotRoute)
+  .use("/deleted-users", DeletedUserController)
+  .use("/chatbot", chatbotRoute)
   .use("/holidays", HolidaysController)
   .use("/feed", FeedController);
 

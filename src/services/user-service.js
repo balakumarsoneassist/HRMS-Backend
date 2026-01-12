@@ -20,9 +20,29 @@ class UserService extends crud_service {
     this.access_model = access_model;
     this.privateKey = "Bala"; // 🔒 Move to .env in production
 
-    this.validateAdd = async (data) => {};
-    this.validateEdit = async (data, id) => {};
-    this.validateDelete = async (data) => {};
+    this.validateAdd = async (data) => { };
+    this.validateEdit = async (data, id) => { };
+    this.validateDelete = async (data) => { };
+
+    this.preEdit = async (data, filter) => {
+      if (data.password && data.password.trim() !== '') {
+        this.validatePasswordStrength(data.password);
+        const salt = await bcrypt.genSalt(10);
+        data.password = await bcrypt.hash(data.password, salt);
+      } else {
+        delete data.password; // Don't overwrite with empty string
+      }
+      return data;
+    };
+
+    this.preAdd = async (data) => {
+      if (data.password && data.password.trim() !== '') {
+        this.validatePasswordStrength(data.password);
+        const salt = await bcrypt.genSalt(10);
+        data.password = await bcrypt.hash(data.password, salt);
+      }
+      return data;
+    };
 
     this.init = async () => {
       try {
@@ -42,7 +62,7 @@ class UserService extends crud_service {
             main: [
               {
                 menuName: "Dashboard",
-                children: [{ submenuName: "Dashboard" },{ submenuName: "Feed" }],
+                children: [{ submenuName: "Dashboard" }, { submenuName: "Feed" }],
               },
               {
                 menuName: "Assign Templates",
@@ -79,7 +99,7 @@ class UserService extends crud_service {
               },
               {
                 menuName: "Leave Policy",
-                children: [{ submenuName: "Yearly Leave Policy" },{ submenuName: "Users Leave Policy Edit" }],
+                children: [{ submenuName: "Yearly Leave Policy" }, { submenuName: "Users Leave Policy Edit" }],
               },
               {
                 menuName: "Holiday Planning",
@@ -96,13 +116,12 @@ class UserService extends crud_service {
             main: [
               {
                 menuName: "Dashboard",
-                children: [{ submenuName: "Dashboard" },{ submenuName: "Feed" }],
+                children: [{ submenuName: "Dashboard" }, { submenuName: "Feed" }],
               },
               {
                 menuName: "Certificate",
                 children: [
-                  { submenuName: "Letters of Appointment" },
-                  { submenuName: "Payslip" }
+                  { submenuName: "Id-card" }
                 ],
               },
               {
@@ -148,7 +167,7 @@ class UserService extends crud_service {
             main: [
               {
                 menuName: "Dashboard",
-                children: [{ submenuName: "Dashboard" },{ submenuName: "Feed" }],
+                children: [{ submenuName: "Dashboard" }, { submenuName: "Feed" }],
               },
               {
                 menuName: "Attendance",
@@ -176,7 +195,7 @@ class UserService extends crud_service {
             main: [
               {
                 menuName: "Dashboard",
-                children: [{ submenuName: "Dashboard" },{ submenuName: "Feed" }],
+                children: [{ submenuName: "Dashboard" }, { submenuName: "Feed" }],
               },
               {
                 menuName: "Certificate",
@@ -382,51 +401,51 @@ class UserService extends crud_service {
       return await getVisibleUserIdsFor(actingUserId);
     };
 
- 
+
 
     // Returns how many months remain in the year from the given date's month (inclusive)
-function remainingMonthsInYear(date) {
-  const m = date.getMonth(); // 0–11
-  return 12 - m;
-}
+    function remainingMonthsInYear(date) {
+      const m = date.getMonth(); // 0–11
+      return 12 - m;
+    }
 
-// Normalize labels safely
-function normalizeLabel(label = "") {
-  return String(label).trim();
-}
+    // Normalize labels safely
+    function normalizeLabel(label = "") {
+      return String(label).trim();
+    }
 
-// Allowed leave types
-const ALLOWED_LEAVES = [
-  "Sick Leave",
-  "Casual Leave",
-  "Planned Leave",
-  "Maternity Leave",
-  "Paternity Leave",
-  "Compoff Leave"
-];
+    // Allowed leave types
+    const ALLOWED_LEAVES = [
+      "Sick Leave",
+      "Casual Leave",
+      "Planned Leave",
+      "Maternity Leave",
+      "Paternity Leave",
+      "Compoff Leave"
+    ];
 
-// Get or create a year bucket
-function getYearBucket(leaveRecord, year) {
-  return (leaveRecord.remaining || []).find(b => b.year === year);
-}
+    // Get or create a year bucket
+    function getYearBucket(leaveRecord, year) {
+      return (leaveRecord.remaining || []).find(b => b.year === year);
+    }
 
-function ensureYearBucket(leaveRecord, year, { accrualType, perMonth = 0, fixedAmount = 0, doj } = {}) {
-  let bucket = getYearBucket(leaveRecord, year);
-  if (bucket) return bucket;
+    function ensureYearBucket(leaveRecord, year, { accrualType, perMonth = 0, fixedAmount = 0, doj } = {}) {
+      let bucket = getYearBucket(leaveRecord, year);
+      if (bucket) return bucket;
 
-  const months = Array(12).fill(0);
-  if (accrualType === "monthly") {
-    months.fill(perMonth);
-  }
-  else if (accrualType === "fixed" && doj && year === new Date(doj).getFullYear()) {
-    months[new Date(doj).getMonth()] = fixedAmount;
-  }
+      const months = Array(12).fill(0);
+      if (accrualType === "monthly") {
+        months.fill(perMonth);
+      }
+      else if (accrualType === "fixed" && doj && year === new Date(doj).getFullYear()) {
+        months[new Date(doj).getMonth()] = fixedAmount;
+      }
 
-  bucket = { year, months };
-  leaveRecord.remaining = leaveRecord.remaining || [];
-  leaveRecord.remaining.push(bucket);
-  return bucket;
-}
+      bucket = { year, months };
+      leaveRecord.remaining = leaveRecord.remaining || [];
+      leaveRecord.remaining.push(bucket);
+      return bucket;
+    }
 
 
     /**
@@ -436,237 +455,237 @@ function ensureYearBucket(leaveRecord, year, { accrualType, perMonth = 0, fixedA
      * @param {Date|string} doj      user's date of joining (required for pro-rating)
      */
 
-// this.leaveModelCreate = async (userId, userRoleName, doj) => {
-//   console.log("Seeding leaves for:", userId, userRoleName, doj);
+    // this.leaveModelCreate = async (userId, userRoleName, doj) => {
+    //   console.log("Seeding leaves for:", userId, userRoleName, doj);
 
-//   const policySvc = new LeavePolicyService();
-//   const leaveSvc = new LeaveTypeService();
+    //   const policySvc = new LeavePolicyService();
+    //   const leaveSvc = new LeaveTypeService();
 
-//   // 1) fetch active policies
-//   let policies = await policySvc.listActive(userRoleName);
+    //   // 1) fetch active policies
+    //   let policies = await policySvc.listActive(userRoleName);
 
-//   // fallback defaults
-//   if (!policies || policies.length === 0) {
-//     const defaults = [
-//       { label: "Sick Leave", amount: 1, accrualType: "monthly", active: true },
-//       { label: "Casual Leave", amount: 1, accrualType: "monthly", active: true },
-//       { label: "Planned Leave", amount: 7, accrualType: "annual", active: true },
-//       { label: "Maternity Leave", amount: 15, accrualType: "fixed", active: true },
-//       { label: "Paternity Leave", amount: 5, accrualType: "annual", active: true },
-//       { label: "Compoff Leave", amount: 3, accrualType: "fixed", active: true },
-//     ];
+    //   // fallback defaults
+    //   if (!policies || policies.length === 0) {
+    //     const defaults = [
+    //       { label: "Sick Leave", amount: 1, accrualType: "monthly", active: true },
+    //       { label: "Casual Leave", amount: 1, accrualType: "monthly", active: true },
+    //       { label: "Planned Leave", amount: 7, accrualType: "annual", active: true },
+    //       { label: "Maternity Leave", amount: 15, accrualType: "fixed", active: true },
+    //       { label: "Paternity Leave", amount: 5, accrualType: "annual", active: true },
+    //       { label: "Compoff Leave", amount: 3, accrualType: "fixed", active: true },
+    //     ];
 
-//     try {
-//       if (typeof policySvc.addMany === "function") {
-//         await policySvc.addMany(defaults);
-//       } else await Promise.all(defaults.map(p => policySvc.add(p)));
-//     } catch (_) { /* ignore duplicates */ }
+    //     try {
+    //       if (typeof policySvc.addMany === "function") {
+    //         await policySvc.addMany(defaults);
+    //       } else await Promise.all(defaults.map(p => policySvc.add(p)));
+    //     } catch (_) { /* ignore duplicates */ }
 
-//     policies = await policySvc.listActive(userRoleName);
-//   }
+    //     policies = await policySvc.listActive(userRoleName);
+    //   }
 
-//   const from = doj ? new Date(doj) : new Date();
-//   const joinYear = from.getFullYear();
-//   const remMonths = remainingMonthsInYear(from);
-//   const currentYear = new Date().getFullYear();
+    //   const from = doj ? new Date(doj) : new Date();
+    //   const joinYear = from.getFullYear();
+    //   const remMonths = remainingMonthsInYear(from);
+    //   const currentYear = new Date().getFullYear();
 
-//   for (const p of policies) {
-//     if (!p.active) continue;
+    //   for (const p of policies) {
+    //     if (!p.active) continue;
 
-//     const label = normalizeLabel(p.label);
-//     if (!ALLOWED_LEAVES.includes(label)) continue;
+    //     const label = normalizeLabel(p.label);
+    //     if (!ALLOWED_LEAVES.includes(label)) continue;
 
-//     const accrualType = String(p.accrualType || "").toLowerCase().trim();
-//     const amt = Number(p.amount ?? p.value ?? 0);
+    //     const accrualType = String(p.accrualType || "").toLowerCase().trim();
+    //     const amt = Number(p.amount ?? p.value ?? 0);
 
-//     let leaveDoc = await leaveSvc.retrieve({ userId, label });
+    //     let leaveDoc = await leaveSvc.retrieve({ userId, label });
 
-//     if (!leaveDoc) {
-//       let initial = 0;
-//       const months = Array(12).fill(0);
+    //     if (!leaveDoc) {
+    //       let initial = 0;
+    //       const months = Array(12).fill(0);
 
-//       if (accrualType === "monthly") {
-//         initial = amt;
-//         months.fill(amt);
-//       } else if (accrualType === "annual") {
-//         initial = Math.floor((amt * remMonths) / 12);
-//         const perMonth = remMonths > 0 ? Math.floor(initial / remMonths) : 0;
-//         for (let i = 12 - remMonths; i < 12; i++) months[i] = perMonth;
-//         months[11] += initial - (perMonth * remMonths);
-//       } else if (accrualType === "fixed") {
-//         initial = amt;
-//         months[from.getMonth()] = amt;
-//       }
+    //       if (accrualType === "monthly") {
+    //         initial = amt;
+    //         months.fill(amt);
+    //       } else if (accrualType === "annual") {
+    //         initial = Math.floor((amt * remMonths) / 12);
+    //         const perMonth = remMonths > 0 ? Math.floor(initial / remMonths) : 0;
+    //         for (let i = 12 - remMonths; i < 12; i++) months[i] = perMonth;
+    //         months[11] += initial - (perMonth * remMonths);
+    //       } else if (accrualType === "fixed") {
+    //         initial = amt;
+    //         months[from.getMonth()] = amt;
+    //       }
 
-//       initial = Math.max(0, Math.floor(initial));
-// console.log(
-//         userId,
-//         label,
-//         initial,
-//         accrualType,
-//       );
+    //       initial = Math.max(0, Math.floor(initial));
+    // console.log(
+    //         userId,
+    //         label,
+    //         initial,
+    //         accrualType,
+    //       );
 
-//       leaveDoc = await leaveSvc.add({
-//         userId,
-//         label,
-//         value: initial,
-//         accrualType,
-//         doj: from,
-//         remaining: [{
-//           year: joinYear,
-//           months,
-//           annualValue: accrualType === "annual" ? amt : undefined
-//         }]
-//       });
-//     }
-//     console.log(leaveDoc);
-//     leaveDoc =  leaveDoc.data
-//     if (!getYearBucket(leaveDoc, currentYear)) {
-//       console.log("🔁 Initializing new leave bucket for year:", currentYear);
+    //       leaveDoc = await leaveSvc.add({
+    //         userId,
+    //         label,
+    //         value: initial,
+    //         accrualType,
+    //         doj: from,
+    //         remaining: [{
+    //           year: joinYear,
+    //           months,
+    //           annualValue: accrualType === "annual" ? amt : undefined
+    //         }]
+    //       });
+    //     }
+    //     console.log(leaveDoc);
+    //     leaveDoc =  leaveDoc.data
+    //     if (!getYearBucket(leaveDoc, currentYear)) {
+    //       console.log("🔁 Initializing new leave bucket for year:", currentYear);
 
-//       const perMonth = accrualType === "monthly" ? amt : 0;
-//       ensureYearBucket(leaveDoc, currentYear, { accrualType, perMonth, fixedAmount: amt, doj: leaveDoc.doj });
+    //       const perMonth = accrualType === "monthly" ? amt : 0;
+    //       ensureYearBucket(leaveDoc, currentYear, { accrualType, perMonth, fixedAmount: amt, doj: leaveDoc.doj });
 
-//       if (accrualType === "annual") {
-//         const bucket = getYearBucket(leaveDoc, currentYear);
-//         bucket.annualValue = amt;
-//       }
+    //       if (accrualType === "annual") {
+    //         const bucket = getYearBucket(leaveDoc, currentYear);
+    //         bucket.annualValue = amt;
+    //       }
 
-//       await leaveSvc.add({
-//   ...leaveDoc, // spread existing fields
-//   remaining: leaveDoc.remaining, // updated buckets
-// });
-//     }
-//   }
+    //       await leaveSvc.add({
+    //   ...leaveDoc, // spread existing fields
+    //   remaining: leaveDoc.remaining, // updated buckets
+    // });
+    //     }
+    //   }
 
-//   return await leaveSvc.retrieve({ userId });
-// };
-this.leaveModelCreate = async (userId, userRoleName, doj) => {
-  console.log("Seeding leaves for:", userId, userRoleName, doj);
+    //   return await leaveSvc.retrieve({ userId });
+    // };
+    this.leaveModelCreate = async (userId, userRoleName, doj) => {
+      console.log("Seeding leaves for:", userId, userRoleName, doj);
 
-  const policySvc = new LeavePolicyService();
-  const leaveSvc = new LeaveTypeService();
+      const policySvc = new LeavePolicyService();
+      const leaveSvc = new LeaveTypeService();
 
-  // 1) Fetch active policies
-  let policies = await policySvc.listActive(userRoleName);
+      // 1) Fetch active policies
+      let policies = await policySvc.listActive(userRoleName);
 
-  // 2) Fallback defaults if no policies
-  if (!policies || policies.length === 0) {
-    const defaults = [
-      { label: "Sick Leave", amount: 1, accrualType: "monthly", active: true },
-      { label: "Casual Leave", amount: 1, accrualType: "monthly", active: true },
-      { label: "Planned Leave", amount: 7, accrualType: "annual", active: true },
-      { label: "Maternity Leave", amount: 15, accrualType: "fixed", active: true },
-      { label: "Paternity Leave", amount: 5, accrualType: "annual", active: true },
-      { label: "Compoff Leave", amount: 3, accrualType: "fixed", active: true },
-    ];
+      // 2) Fallback defaults if no policies
+      if (!policies || policies.length === 0) {
+        const defaults = [
+          { label: "Sick Leave", amount: 1, accrualType: "monthly", active: true },
+          { label: "Casual Leave", amount: 1, accrualType: "monthly", active: true },
+          { label: "Planned Leave", amount: 7, accrualType: "annual", active: true },
+          { label: "Maternity Leave", amount: 15, accrualType: "fixed", active: true },
+          { label: "Paternity Leave", amount: 5, accrualType: "annual", active: true },
+          { label: "Compoff Leave", amount: 3, accrualType: "fixed", active: true },
+        ];
 
-    try {
-      if (typeof policySvc.addMany === "function") {
-        await policySvc.addMany(defaults);
-      } else {
-        await Promise.all(defaults.map((p) => policySvc.add(p)));
+        try {
+          if (typeof policySvc.addMany === "function") {
+            await policySvc.addMany(defaults);
+          } else {
+            await Promise.all(defaults.map((p) => policySvc.add(p)));
+          }
+        } catch (_) {
+          // ignore duplicates
+        }
+
+        policies = await policySvc.listActive(userRoleName);
       }
-    } catch (_) {
-      // ignore duplicates
-    }
 
-    policies = await policySvc.listActive(userRoleName);
-  }
+      const currentYear = new Date().getFullYear();
+      const nowMonth = new Date().getMonth(); // 0..11
+      const safeDoj = doj ? new Date(doj) : null;
+      const from = safeDoj && !isNaN(safeDoj.getTime()) ? safeDoj : new Date(); // stored, but not used for year logic
 
-  const currentYear = new Date().getFullYear();
-  const nowMonth = new Date().getMonth(); // 0..11
-  const safeDoj = doj ? new Date(doj) : null;
-  const from = safeDoj && !isNaN(safeDoj.getTime()) ? safeDoj : new Date(); // stored, but not used for year logic
+      // Helper: months allocation for CURRENT YEAR ONLY
+      const buildMonthsForCurrentYear = (accrualType, amt) => {
+        const months = Array(12).fill(0);
 
-  // Helper: months allocation for CURRENT YEAR ONLY
-  const buildMonthsForCurrentYear = (accrualType, amt) => {
-    const months = Array(12).fill(0);
+        if (accrualType === "monthly") {
+          // If you want to credit only from current month onwards (recommended):
+          for (let m = nowMonth; m < 12; m++) months[m] = amt;
 
-    if (accrualType === "monthly") {
-      // If you want to credit only from current month onwards (recommended):
-      for (let m = nowMonth; m < 12; m++) months[m] = amt;
+          // If you want to credit full year immediately, use:
+          // months.fill(amt);
+        } else if (accrualType === "annual") {
+          // Full annual credit (choose where you credit it)
+          months[0] = amt; // credit in Jan
+          // or months[11] = amt; // credit in Dec
+        } else if (accrualType === "fixed") {
+          // Credit once in current month
+          months[nowMonth] = amt;
+        }
 
-      // If you want to credit full year immediately, use:
-      // months.fill(amt);
-    } else if (accrualType === "annual") {
-      // Full annual credit (choose where you credit it)
-      months[0] = amt; // credit in Jan
-      // or months[11] = amt; // credit in Dec
-    } else if (accrualType === "fixed") {
-      // Credit once in current month
-      months[nowMonth] = amt;
-    }
+        return months;
+      };
 
-    return months;
-  };
+      for (const p of policies) {
+        if (!p?.active) continue;
 
-  for (const p of policies) {
-    if (!p?.active) continue;
+        const label = normalizeLabel(p.label);
+        if (!ALLOWED_LEAVES.includes(label)) continue;
 
-    const label = normalizeLabel(p.label);
-    if (!ALLOWED_LEAVES.includes(label)) continue;
+        const accrualType = String(p.accrualType || "").toLowerCase().trim(); // monthly|annual|fixed
+        const amt = Number(p.amount ?? p.value ?? 0);
 
-    const accrualType = String(p.accrualType || "").toLowerCase().trim(); // monthly|annual|fixed
-    const amt = Number(p.amount ?? p.value ?? 0);
+        // Retrieve existing
+        const existing = await leaveSvc.retrieve({ userId, label });
+        let leaveDoc = existing?.data || null;
 
-    // Retrieve existing
-    const existing = await leaveSvc.retrieve({ userId, label });
-    let leaveDoc = existing?.data || null;
+        const months = buildMonthsForCurrentYear(accrualType, amt);
 
-    const months = buildMonthsForCurrentYear(accrualType, amt);
+        // Set initial value for the doc as the sum of current year months
+        const initialValue = months.reduce((a, b) => a + b, 0);
 
-    // Set initial value for the doc as the sum of current year months
-    const initialValue = months.reduce((a, b) => a + b, 0);
+        // CREATE if not exists
+        if (!leaveDoc) {
+          console.log("Creating LeaveType:", { userId, label, initialValue, accrualType });
 
-    // CREATE if not exists
-    if (!leaveDoc) {
-      console.log("Creating LeaveType:", { userId, label, initialValue, accrualType });
+          const created = await leaveSvc.add({
+            userId,
+            label,
+            value: initialValue,
+            accrualType,
+            doj: from, // store DOJ but not used for bucket decisions
+            remaining: [
+              {
+                year: currentYear,
+                months,
+                annualValue: accrualType === "annual" ? amt : undefined,
+              },
+            ],
+          });
 
-      const created = await leaveSvc.add({
-        userId,
-        label,
-        value: initialValue,
-        accrualType,
-        doj: from, // store DOJ but not used for bucket decisions
-        remaining: [
-          {
+          leaveDoc = created?.data;
+          continue;
+        }
+
+        // If exists: ensure CURRENT YEAR bucket only
+        leaveDoc.remaining = Array.isArray(leaveDoc.remaining) ? leaveDoc.remaining : [];
+
+        const bucket = getYearBucket(leaveDoc, currentYear);
+        if (!bucket) {
+          // Add only current year bucket
+          leaveDoc.remaining.push({
             year: currentYear,
             months,
             annualValue: accrualType === "annual" ? amt : undefined,
-          },
-        ],
-      });
+          });
 
-      leaveDoc = created?.data;
-      continue;
-    }
+          // ✅ UPDATE (DO NOT use add for update)
+          await leaveSvc.update(
+            {
+              remaining: leaveDoc.remaining,
+              updatedAt: new Date(),
+            },
+            { _id: leaveDoc._id } // Fixed: Pass filter as object
+          );
+        }
+      }
 
-    // If exists: ensure CURRENT YEAR bucket only
-    leaveDoc.remaining = Array.isArray(leaveDoc.remaining) ? leaveDoc.remaining : [];
-
-    const bucket = getYearBucket(leaveDoc, currentYear);
-    if (!bucket) {
-      // Add only current year bucket
-      leaveDoc.remaining.push({
-        year: currentYear,
-        months,
-        annualValue: accrualType === "annual" ? amt : undefined,
-      });
-
-      // ✅ UPDATE (DO NOT use add for update)
-      await leaveSvc.update(
-        {
-          remaining: leaveDoc.remaining,
-          updatedAt: new Date(),
-        },
-        leaveDoc._id // IMPORTANT: your update expects (payload, id)
-      );
-    }
-  }
-
-  return await leaveSvc.retrieve({ userId });
-};
+      return await leaveSvc.retrieve({ userId });
+    };
 
 
 
@@ -795,92 +814,92 @@ this.leaveModelCreate = async (userId, userRoleName, doj) => {
     };
   }
 
-// ✅ Move user to deleted_user collection (soft delete)
+  // ✅ Move user to deleted_user collection (soft delete)
 
-async softDeleteUser(userId, deletedBy, reason) {
-  const user = await this.model.findById(userId);
-  if (!user) throw new Error("User not found");
+  async softDeleteUser(userId, deletedBy, reason) {
+    const user = await this.model.findById(userId);
+    if (!user) throw new Error("User not found");
 
-  // Create a deleted record
-  const deletedUser = new DeletedUserModel({
-    user_name: user.user_name,
-    mobile_no: user.mobile_no,
-    empId: user.empId,
-    email: user.email,
-    role: user.role,
-    position: user.position,
-    designation: user.designation,
-    department: user.department,
-    deletedBy: deletedBy || null,
-    deletedReason: reason || "Deleted by admin",
-    originalCreatedAt: user.createdAt,
-    originalUpdatedAt: user.updatedAt,
-    backupData: user.toObject(),
-  });
+    // Create a deleted record
+    const deletedUser = new DeletedUserModel({
+      user_name: user.user_name,
+      mobile_no: user.mobile_no,
+      empId: user.empId,
+      email: user.email,
+      role: user.role,
+      position: user.position,
+      designation: user.designation,
+      department: user.department,
+      deletedBy: deletedBy || null,
+      deletedReason: reason || "Deleted by admin",
+      originalCreatedAt: user.createdAt,
+      originalUpdatedAt: user.updatedAt,
+      backupData: user.toObject(),
+    });
 
-  try {
-    // ✅ Save deleted record
-    const savedDeletedUser = await deletedUser.save();
+    try {
+      // ✅ Save deleted record
+      const savedDeletedUser = await deletedUser.save();
 
-    // 🧾 Verification step
-    const verify = await DeletedUserModel.findById(savedDeletedUser._id);
-    if (!verify) throw new Error("Verification failed — deleted user not found after save!");
+      // 🧾 Verification step
+      const verify = await DeletedUserModel.findById(savedDeletedUser._id);
+      if (!verify) throw new Error("Verification failed — deleted user not found after save!");
 
-    console.log("✅ Deleted user saved & verified:", verify._id);
+      console.log("✅ Deleted user saved & verified:", verify._id);
 
-    // 🔥 Remove from main users collection
-    await this.model.findByIdAndDelete(userId);
-    console.log("🗑️ Original user deleted from main collection:", userId);
+      // 🔥 Remove from main users collection
+      await this.model.findByIdAndDelete(userId);
+      console.log("🗑️ Original user deleted from main collection:", userId);
 
-    return {
-      success: true,
-      message: "User moved to deleted_user collection successfully",
-      deletedUserId: verify._id
-    };
-  } catch (err) {
-    console.error("❌ Error saving deleted user:", err);
-    throw new Error("Failed to save user in deleted_user collection");
+      return {
+        success: true,
+        message: "User moved to deleted_user collection successfully",
+        deletedUserId: verify._id
+      };
+    } catch (err) {
+      console.error("❌ Error saving deleted user:", err);
+      throw new Error("Failed to save user in deleted_user collection");
+    }
   }
-}
 
 
-// ✅ Restore deleted user from deleted_user collection
-async restoreUser(deletedUserId) {
-  const deletedUser = await deleteduser_model.findById(deletedUserId);
-  if (!deletedUser) throw new Error("Deleted user not found");
+  // ✅ Restore deleted user from deleted_user collection
+  async restoreUser(deletedUserId) {
+    const deletedUser = await deleteduser_model.findById(deletedUserId);
+    if (!deletedUser) throw new Error("Deleted user not found");
 
-  // Prevent duplicates — check if email or empId already re-exists
-  const existing = await this.model.findOne({
-    $or: [{ email: deletedUser.email }, { empId: deletedUser.empId }],
-  });
-  if (existing) throw new Error("A user with this email or empId already exists");
+    // Prevent duplicates — check if email or empId already re-exists
+    const existing = await this.model.findOne({
+      $or: [{ email: deletedUser.email }, { empId: deletedUser.empId }],
+    });
+    if (existing) throw new Error("A user with this email or empId already exists");
 
-  // Recreate in main collection
-  const restoredUser = new this.model({
-    user_name: deletedUser.user_name,
-    mobile_no: deletedUser.mobile_no,
-    empId: deletedUser.empId,
-    email: deletedUser.email,
-    role: deletedUser.role,
-    position: deletedUser.position,
-    designation: deletedUser.designation,
-    department: deletedUser.department,
-    createdBy: deletedUser.deletedBy || null,
-    doj: deletedUser.originalCreatedAt || new Date(),
-    dob: deletedUser.backupData?.dob || new Date(),
-    status: true,
-    password: "$2b$10$X4S9yDavmUcG9GvAVjDLn.HhKIM7OBTcRW/jowKPctIRGAqaKqH52",
-    createdby: "6884d238fbb2351b8786d26f"
+    // Recreate in main collection
+    const restoredUser = new this.model({
+      user_name: deletedUser.user_name,
+      mobile_no: deletedUser.mobile_no,
+      empId: deletedUser.empId,
+      email: deletedUser.email,
+      role: deletedUser.role,
+      position: deletedUser.position,
+      designation: deletedUser.designation,
+      department: deletedUser.department,
+      createdBy: deletedUser.deletedBy || null,
+      doj: deletedUser.originalCreatedAt || new Date(),
+      dob: deletedUser.backupData?.dob || new Date(),
+      status: true,
+      password: "$2b$10$X4S9yDavmUcG9GvAVjDLn.HhKIM7OBTcRW/jowKPctIRGAqaKqH52",
+      createdby: "6884d238fbb2351b8786d26f"
 
-  });
+    });
 
-  await restoredUser.save();
+    await restoredUser.save();
 
-  // Remove from deleted_user collection
-  await deleteduser_model.findByIdAndDelete(deletedUserId);
+    // Remove from deleted_user collection
+    await deleteduser_model.findByIdAndDelete(deletedUserId);
 
-  return { success: true, message: "User restored successfully", data: restoredUser };
-}
+    return { success: true, message: "User restored successfully", data: restoredUser };
+  }
 
 }
 
