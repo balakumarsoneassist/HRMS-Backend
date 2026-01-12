@@ -69,11 +69,9 @@ UserController.get("/", async (req, res) => {
       ]);
 
       if (existingMobile)
-        return res.json({ message: "Mobile number already exists" });
-      if (existingEmail) return res.json({ message: "Email already exists" });
-
-      // 🔑 Hash password
-      req.body.password = await bcrypt.hash(req.body.password, 10);
+        return res.status(400).json({ success: false, message: "Mobile number already exists" });
+      if (existingEmail)
+        return res.status(400).json({ success: false, message: "Email already exists" });
 
       const result = await service.add(req.body);
       const newUserId = result?.data?._id;
@@ -109,7 +107,7 @@ UserController.get("/", async (req, res) => {
       return res.json(result);
     } catch (e) {
       console.error("POST /users error:", e);
-      res.status(500).json({ message: "Server error" });
+      res.status(400).json({ success: false, message: e.message || "Server error" });
     }
   })
 
@@ -168,11 +166,9 @@ UserController.get("/", async (req, res) => {
         service.retrieve({ email: req.body.email }),
       ]);
       if (existingMobile)
-        return res.json({ message: "Mobile number already exixts" });
-      if (existingEmail) return res.json({ message: "Email  already exixts" });
-
-      // --- Hash password ---
-      req.body.password = await bcrypt.hash(req.body.password, 10);
+        return res.status(400).json({ success: false, message: "Mobile number already exists" });
+      if (existingEmail)
+        return res.status(400).json({ success: false, message: "Email already exists" });
 
       // --- Load templates/roles by name ---
       const [adminTemplate, employeeRole, internRole] = await Promise.all([
@@ -252,7 +248,7 @@ UserController.get("/", async (req, res) => {
       });
     } catch (e) {
       console.error("POST /superad error:", e);
-      res.status(500).json({ message: "Server error" });
+      res.status(400).json({ success: false, message: e.message || "Server error" });
     }
   })
   .put("/:id", routes.update)
