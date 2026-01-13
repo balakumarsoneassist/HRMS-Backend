@@ -1,18 +1,17 @@
 {
   "defaultShift": {
-    "startHour": 9,
-    "startMinute": 15,
-    "endHour": 18,
-    "endMinute": 15
+    "startHour": 8,
+    "startMinute": 30,
+    "endHour": 17,
+    "endMinute": 30
   },
   "weekendShift": {
-   "startHour": 9,
-    "startMinute": 15,
-    "endHour": 18,
-    "endMinute": 15
+    "startHour": 8,
+    "startMinute": 30,
+    "endHour": 17,
+    "endMinute": 30
   },
   "additionalTIming": {
-   "dailyuntil": 9.45
+    "dailyuntil": 9.45
   }
-
 }
