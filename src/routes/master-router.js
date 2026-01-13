@@ -16,8 +16,10 @@ const PayloadController = require("../controllers/payload-controller");
 const DeletedUserController = require("../controllers/deleted-user-controller");
 const chatbotRoute = require('../routes/chatbot-route');
 const FeedController = require("../controllers/feed-controller");
+const DashboardController = require("../controllers/dashboard-controller");
 const masterRouter = express.Router();
 masterRouter
+  .use("/dashboard", DashboardController)
   .use("/api/upload-users", uploadUserRoutes)
   .use("/user/upload-docs", UserDocController)
   .use("/user", user_controller)
