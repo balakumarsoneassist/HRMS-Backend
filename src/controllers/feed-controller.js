@@ -5,7 +5,7 @@ const upload = require("../middleware/upload");
 
 const FeedController = express.Router();
 const feed_service = new FeedService();
-const routes = new routesUtil(feed_service);
+const routes = new routesUtil(FeedService);
 
 /**
  * List - infinite scroll
@@ -31,14 +31,14 @@ FeedController.get("/", async (req, res) => {
 FeedController.post("/", upload.single("image"), async (req, res) => {
   try {
     console.log("hdsfgds");
-    
+
     const body = req.body || {};
 
     // if file exists -> make a public url
     if (req.file) {
       // If you serve uploads statically: app.use('/uploads', express.static('uploads'))
       body.imageUrl = `/uploads/feed/${req.file.filename}`;
-      
+
     }
 
     await feed_service.validateAdd(body);

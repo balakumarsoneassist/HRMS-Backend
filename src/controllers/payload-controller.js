@@ -6,12 +6,15 @@ const payload_service = require("../services/payload-service");
 const routesUtil = require("../utils/routes");
 const UserAttendanceReportService = require("../services/user-attendance-report-service");
 const HolidayService = require("../services/holiday-service");
-const creditPetrolService = require("../services/creditPetrol-service")
+const creditPetrolService = require("../services/creditPetrol-service");
+const UserService = require("../services/user-service"); // ✅ Imported UserService
+
 const PayloadController = express.Router();
 let routes = new routesUtil(payload_service);
 
 const attendanceService = new UserAttendanceReportService();
 const holidayService = new HolidayService();
+const userService = new UserService(); // ✅ Instantiated
 
 /* ------------------- CRUD ------------------- */
 PayloadController.get("/", routes.list)
@@ -88,23 +91,32 @@ function expandHolidayDates(holidays, year, month) {
 }
 
 /* ------------------- Salary Calculation (attendance-aware) ------------------- */
-/* ------------------- Salary Calculation (attendance-aware) ------------------- */
 async function calculateMonthlySalary(userId, year, month) {
   const services = new payload_service();
-  const payload = await services.model.findOne({ user_id: userId });
 
+  // 1. Get Payload
+  const payload = await services.model.findOne({ user_id: userId });
   if (!payload) throw new Error("No salary payload found for this user.");
+
+  // 2. ✅ Get Real User Details (Fix Name Conflict)
+  const userDoc = await userService.retrieve({ _id: userId });
+  if (!userDoc) throw new Error("User not found.");
+
+  const username = userDoc.user_name || "Employee";
+  const empId = userDoc.empId || payload.empId || "-";
+  const designation = payload.designation || userDoc.position || userDoc.role || "Employee"; // Prioritize payload designation
+  const doj = toISO(userDoc.doj) || payload.date_of_joining || "-";
 
   // Monthly CTC
   const monthlyCTC = Number(payload.ctc || 0);
   if (!monthlyCTC || isNaN(monthlyCTC)) throw new Error("Invalid monthly CTC");
 
-  // ✅ Fetch Holidays
+  // Fetch Holidays
   const holidaysResponse = await holidayService.list();
   const holidays = holidaysResponse?.data || holidaysResponse || [];
   const holidayDates = expandHolidayDates(holidays, Number(year), Number(month) - 1);
 
-  // ✅ Calculate Working Days
+  // Calculate Working Days
   const start = new Date(year, month - 1, 1);
   const end = new Date(year, month, 0);
   let totalDays = 0, weekends = 0, holidayCount = 0;
@@ -120,7 +132,7 @@ async function calculateMonthlySalary(userId, year, month) {
   }
   const workingDays = totalDays - weekends - holidayCount;
 
-  // ✅ Get Attendance Pivot
+  // Get Attendance Pivot
   const pivotResult = await attendanceService.getPersistedMonthlyPivotHourly(
     Number(year),
     Number(month),
@@ -128,16 +140,15 @@ async function calculateMonthlySalary(userId, year, month) {
   );
 
   // Extract employee record from pivot
-  const pivotUsers = Object.values(pivotResult.users || {});
-  const employee = pivotUsers[0] || {};  // this API fetches only one user's data
-  const empId = employee.empId || "Unknown";
-  const username = employee.user_name || "Employee";
+  const pivotUser = (pivotResult.users && pivotResult.users[userId])
+    ? pivotResult.users[userId]
+    : (Object.values(pivotResult.users || {})[0] || {});
 
-  const totalStr = employee._totals || "0/0";
+  const totalStr = pivotUser._totals || "0/0";
   const [presentDaysStr] = totalStr.split("/");
   const presentDays = parseInt(presentDaysStr || 0, 10);
 
-  // ✅ Attendance-based ratio
+  // Attendance-based ratio
   const perDay = workingDays > 0 ? +(monthlyCTC / workingDays).toFixed(2) : 0;
   const ratio = workingDays > 0 ? (presentDays / workingDays) : 0;
 
@@ -145,6 +156,8 @@ async function calculateMonthlySalary(userId, year, month) {
     userId,
     empId,
     username,
+    designation, // ✅ Return fixed designation
+    doj,         // ✅ Return fixed doj
     payload,
     year: Number(year),
     month: Number(month),
@@ -156,14 +169,10 @@ async function calculateMonthlySalary(userId, year, month) {
   };
 }
 
-
-
-/* ------------------- Generate Salary PDF (dynamic like your image) ------------------- */
 /* ------------------- Generate Salary PDF (Govt norms + your payslip format) ------------------- */
 PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
   try {
     const { userId, year, month } = req.params;
-
     const creditPetrol_Service = new creditPetrolService();
 
     // Parse numbers
@@ -192,9 +201,10 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
       return sum + Number(item.amount || 0);
     }, 0);
 
-    // ✅ Get salary + attendance context
+    // Get salary + attendance context
     const result = await calculateMonthlySalary(userId, year, month);
-    const { payload, monthlyCTC, ratio, username, empId, workingDays, presentDays } = result;
+    // ✅ Extract Corrected Details
+    const { payload, monthlyCTC, ratio, username, empId, designation, doj, workingDays, presentDays } = result;
 
     // ------------- Helper: build effective allowance % (Basic >= 40% of Gross) -------------
     const allowanceKeys = ["basic", "hra", "da", "ta", "conveyance", "medical", "special"];
@@ -204,9 +214,9 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
       (k) => payload[k] && payload[k].enabled
     );
 
-    // If nothing enabled, we can't build a structure
+    // If nothing enabled, default to basic+special
     if (enabledKeys.length === 0) {
-      throw new Error("No allowances enabled for this payload.");
+      enabledKeys.push("basic", "special");
     }
 
     // Input Basic percent (0 if missing)
@@ -255,7 +265,7 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
       }
     });
 
-    // ------------- Step 2: Solve Gross from: CTC = Gross + Employer PF + Employer ESIC -------------
+    // ------------- Step 2: Solve Gross -------------
     let gross = monthlyCTC;
     let prevGross = 0;
     let employerPfFull = 0;
@@ -368,9 +378,9 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
     earnings.push(["Gross", grossPay]);
 
     // Performance Allowance / Other Payment = Petrol/Travel reimbursement (non-prorated)
-    earnings.push(["Performance Allowance / Other Payment", totalAmount]);
+    earnings.push(["Performance Allowance/Other Payment", totalAmount]);
 
-    // Less : Loss of Pay (you can plug real LOP if you want; 0 for now)
+    // Less : Loss of Pay 
     earnings.push(["Less : Loss of Pay", 0]);
 
     // CTC (configured monthly)
@@ -405,7 +415,7 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
 
     const totalDeductions = +(totalEmployeeDeductionsPay).toFixed(2);
 
-    // ------------- Step 7: Build PDF -------------
+    // ------------- Step 7: Build PDF (Original Style with Alignment Fixes) -------------
     const uploadsDir = path.join(__dirname, "../../uploads");
     if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
@@ -414,7 +424,7 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
 
     const pdfPath = path.join(
       uploadsDir,
-      `payslip_${username}_${year}_${month}.pdf`
+      `payslip_${username.replace(/ /g, '_')}_${year}_${month}.pdf`
     );
 
     const doc = new PDFDocument({ margin: 40 });
@@ -432,10 +442,10 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
       });
 
     // ---------- Header ----------
-    doc.fontSize(14).font("Helvetica-Bold").text("Company Name", { align: "center" });
+    doc.fontSize(14).font("Helvetica-Bold").text("One Assist Technologies", { align: "center" }); // Updated to One Assist based on context
     doc.moveDown(0.2);
-    doc.fontSize(10).font("Helvetica").text("Company Address Line 1", { align: "center" });
-    doc.text("Company Address Line 2", { align: "center" });
+    doc.fontSize(10).font("Helvetica").text("553,NVN Layout, Ponnai Street, Tatabad, Gandhipuram, Coimbatore, Tamilnadu 641012, IN.", { align: "center" });
+    // doc.text("Company Address Line 2", { align: "center" });
     doc.moveDown(0.5);
     doc.fontSize(12).font("Helvetica-Bold").text(`Salary For the Month of ${monthName} ${year}`, { align: "center" });
     doc.moveDown(1.0);
@@ -454,8 +464,8 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
 
     doc.font("Helvetica-Bold");
     doc.text(username || "Employee", leftX + 120, 110);
-    doc.text(payload.designation || "Software Developer", leftX + 120, 125);
-    doc.text(payload.date_of_joining || "", leftX + 120, 140);
+    doc.text(designation, leftX + 120, 125);
+    doc.text(doj, leftX + 120, 140);
 
     doc.text(empId || "-", midX + 130, 110);
     doc.text(`${workingDays} Days`, midX + 130, 125);
@@ -474,7 +484,6 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
     doc.moveTo(50, y + 22).lineTo(550, y + 22).stroke();
     doc.font("Helvetica").fontSize(10);
 
-    // to align with your format, we do not add separate total rows here, we add them later
     let rowY = y + 27;
     const maxRows = Math.max(earnings.length, deductions.length);
 
@@ -484,11 +493,14 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
 
       if (e) {
         doc.text(e[0], leftX, rowY);
-        doc.text(money(e[1]), leftX + 180, rowY, { width: 70, align: "right" });
+        // ✅ ALIGNMENT FIX: Adjusted amount position to not overlapping center line (300)
+        // Previous x: leftX + 180 = 240. Width 70. Ends 310. (Overlapped)
+        // New x: leftX + 160 = 220. Width 70. Ends 290. (Safe)
+        doc.text(money(e[1]), leftX + 160, rowY, { width: 70, align: "right" });
       }
       if (d) {
-        doc.text(d[0], midX + 10, rowY);
-        doc.text(money(d[1]), rightX - 60, rowY, { width: 60, align: "right" });
+        doc.text(d[0], midX + 10, rowY); // 310
+        doc.text(money(d[1]), rightX - 60, rowY, { width: 60, align: "right" }); // 480-540
       }
 
       rowY += 16;
@@ -505,13 +517,14 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
     doc.rect(50, y, 500, 25).stroke();
     doc.font("Helvetica-Bold").fontSize(11);
     doc.text("Net Salary Payable", leftX, y + 5);
-    doc.text(money(netPay), leftX + 180, y + 5, { width: 70, align: "right" });
+    // ✅ Alignment Fix for Net Pay too
+    doc.text(money(netPay), leftX + 160, y + 5, { width: 70, align: "right" });
 
     // ---------- Amount in Words ----------
     y += 35;
     doc.font("Helvetica").fontSize(10);
     doc.text("Amount In Words:", leftX, y);
-    doc.text(numberToWords(Math.round(netPay)), leftX + 120, y, { width: 350 });
+    doc.text(numberToWords(Math.round(netPay)), leftX + 100, y, { width: 370 });
 
     // ---------- Footer ----------
     y += 40;
@@ -532,7 +545,6 @@ PayloadController.get("/salary-pdf/:userId/:year/:month", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
 
 /* ------------------- Amount in words (Indian system) ------------------- */
 function numberToWords(num) {
